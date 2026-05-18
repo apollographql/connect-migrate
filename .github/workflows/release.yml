@@ -20,11 +20,16 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - { platform: darwin-arm64,  os: macos-latest,   triple: aarch64-apple-darwin,       cross: false }
-          - { platform: darwin-x64,    os: macos-13,       triple: x86_64-apple-darwin,        cross: false }
-          - { platform: linux-x64,     os: ubuntu-latest,  triple: x86_64-unknown-linux-gnu,   cross: false }
-          - { platform: linux-arm64,   os: ubuntu-latest,  triple: aarch64-unknown-linux-gnu,  cross: true  }
-          - { platform: win32-x64,     os: windows-latest, triple: x86_64-pc-windows-msvc,     cross: false }
+          - { platform: darwin-arm64,  os: macos-latest,   triple: aarch64-apple-darwin,       cross: false, smoke: true  }
+          # `macos-13` Intel runners have been deprecated and may queue
+          # indefinitely. Build x86_64-apple-darwin from `macos-latest`
+          # (Apple Silicon) using Apple's bi-arch toolchain. Smoke test
+          # disabled — arm64 host can't natively run an x86_64 binary
+          # without Rosetta, which isn't pre-installed.
+          - { platform: darwin-x64,    os: macos-latest,   triple: x86_64-apple-darwin,        cross: false, smoke: false }
+          - { platform: linux-x64,     os: ubuntu-latest,  triple: x86_64-unknown-linux-gnu,   cross: false, smoke: true  }
+          - { platform: linux-arm64,   os: ubuntu-latest,  triple: aarch64-unknown-linux-gnu,  cross: true,  smoke: false }
+          - { platform: win32-x64,     os: windows-latest, triple: x86_64-pc-windows-msvc,     cross: false, smoke: true  }
     runs-on: ${{ matrix.target.os }}
     steps:
       - name: Checkout connect-migrate workflow
@@ -78,15 +83,15 @@ jobs:
         if: matrix.target.cross
         run: echo "Skipping strip for cross-compiled ${{ matrix.target.triple }}"
 
-      - name: Smoke-test the binary
-        if: '!matrix.target.cross && runner.os != ''Windows'''
+      - name: Smoke-test the binary (Unix)
+        if: matrix.target.smoke && runner.os != 'Windows'
         working-directory: router
         run: |
           ./target/${{ matrix.target.triple }}/release/connect-migrate --version
           ./target/${{ matrix.target.triple }}/release/connect-migrate agent-guide | head -3
 
       - name: Smoke-test the binary (Windows)
-        if: runner.os == 'Windows'
+        if: matrix.target.smoke && runner.os == 'Windows'
         working-directory: router
         shell: pwsh
         run: |
