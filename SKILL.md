@@ -11,12 +11,17 @@ corpus:
 - 97.4% of `@connect(selection: …)` strings parse identically in v0.3
   and v0.4 — no migration needed.
 - 2.1% have at least one site where the v0.4 reading differs from v0.3.
-- About **70%** of those differing sites are placeholder-literal patterns
-  (`field: null`, `field: true`, `field: "USD"`) where the v0.4 reading
-  is almost certainly what the developer originally meant — v0.3 was
-  silently returning `null`. Upgrading is the fix.
-- About **30%** are quoted field-name references for REST APIs whose
-  field names aren't valid GraphQL identifiers
+- The large majority of those differing sites (~77%) are
+  **placeholder-literal patterns** (`field: null`, `field: true`,
+  `field: "USD"`) where the v0.4 reading is almost certainly what the
+  developer originally meant. In v0.3 the parser tried to look up a
+  *field* named `null` / `true` / `"USD"` in the upstream response,
+  didn't find it, and returned `None` — which GraphQL's response
+  normalization then surfaced as `null`. The intent (a literal value)
+  matched the observed output (a null) by accident. v0.4 makes that
+  intent explicit and reliable. Upgrading is the fix.
+- A meaningful minority (~22%) are **quoted field-name references**
+  for REST APIs whose field names aren't valid GraphQL identifiers
   (`gqlSafeAlias: "@odata.nextLink"`, `score: "@search.score"`,
   `id: "@id"`). These need a small source change to preserve their v0.3
   meaning under v0.4.
@@ -125,9 +130,11 @@ behavior was silently broken. Heuristics:
 - Bare `null` / `true` / `false`. The corpus shows these are almost
   always intended as placeholder values — `description: null`,
   `success: true`. In v0.3 the parser tried to look up a field named
-  `null`/`true`/`false`, didn't find it, and returned undefined/null.
-  GraphQL then often normalized that to `null` and *accidentally*
-  matched the developer's intent. v0.4 makes the intent explicit.
+  `null`/`true`/`false` in the upstream response, didn't find it,
+  returned `None`, and GraphQL's response normalization surfaced that
+  as `null` — accidentally matching the literal-intent the developer
+  expressed. v0.4 makes the intent explicit and removes the dependence
+  on that incidental normalization.
 - Short uppercase constants: `"USD"`, `"USA"`, `"PASSENGER"`.
 - Currency-like or formatting tokens: `"0.00"`, `"-"`, `"2x"`.
 - Single-character placeholders.
@@ -190,11 +197,16 @@ the developer:
 
 - **Unrecognized decision** — a `Decision:` field with a value other
   than `keep-v0.3` / `embrace-v0.4` / `skip` / `custom: …`.
-- **Stale site identifier** — the file the recommendation refers to
-  has been edited and the site's content hash no longer matches.
-  `apply` will re-run `analyze` under the hood to refresh stale sites,
-  but unresolved staleness needs the developer to look.
-- **Missing decision** — a `Decision: ???` was left in the file.
+- **Stale site identifier** — the source file the recommendation
+  refers to has been edited and the site's content hash no longer
+  matches. Re-run `connect-migrate analyze` to regenerate the file,
+  then re-apply the developer's prior decisions.
+  <!-- FOLLOW-UP: future versions may auto-refresh by re-running
+       analyze under the hood and three-way-merging the developer's
+       Decision fields onto the fresh sites. For now, prompt the
+       developer to re-run analyze themselves. -->
+- **Missing decision** — a `Decision: ???` (or empty) was left in the
+  file.
 
 ### Step B2: apply for real
 
@@ -256,9 +268,18 @@ Edit the `Decision:` line on each site below, then run:
 - `embrace-v0.4` — accept the new v0.4 literal reading; no source
   change.
 - `skip` — make no change; do not raise this site again on future
-  `analyze` runs (records a `<!-- ignore -->` marker in the source).
+  `analyze` runs.
+  <!-- FOLLOW-UP: where the persistence marker lives in source is a
+       Phase-4 implementation decision (in-line `# connect-migrate:
+       ignore` GraphQL comment? sidecar `.connect-migrate-ignore`
+       file?). Pin in Phase 4. -->
+
 - `custom: <text>` — replace the token with the given text exactly.
-  Use this only when you know what you're doing.
+  Use this only when you know what you're doing. Example: to keep
+  the v0.3 field-reference reading *and* chain a subselection,
+  override `keep-v0.3` (which only prepends `$.`) with
+  `custom: $."foo-bar".baz`. The trailing characters after
+  the `custom:` keyword become the literal replacement.
 
 ---
 
