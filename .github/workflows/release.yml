@@ -65,10 +65,18 @@ jobs:
         working-directory: router/apollo-federation
         run: cross build --release --target ${{ matrix.target.triple }} --bin connect-migrate --features connect-migrate
 
-      - name: Strip (Unix)
-        if: runner.os != 'Windows'
+      - name: Strip (Unix, native)
+        if: runner.os != 'Windows' && !matrix.target.cross
         working-directory: router
         run: strip target/${{ matrix.target.triple }}/release/connect-migrate
+
+      # Cross-compiled binaries can't be stripped by the host's `strip`
+      # (different ELF arch). We could install a cross-arch strip from
+      # binutils-aarch64-linux-gnu, but for now we accept the larger
+      # binary and skip stripping on cross builds.
+      - name: Skip strip (cross)
+        if: matrix.target.cross
+        run: echo "Skipping strip for cross-compiled ${{ matrix.target.triple }}"
 
       - name: Smoke-test the binary
         if: '!matrix.target.cross && runner.os != ''Windows'''
