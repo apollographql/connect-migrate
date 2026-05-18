@@ -41,6 +41,12 @@ For now, `connect-migrate` exposes one subcommand:
 
 The plan is for the binary to grow `analyze` (produces a `recommendations.md` summarizing every site that needs attention) and `apply` (executes the developer's chosen actions from that file) in subsequent releases.
 
+## Agent skill
+
+[`SKILL.md`](SKILL.md) is the canonical text an agent (Claude Code, Cursor, Cline, or any other) follows when assisting with the migration. It describes a two-step flow — `analyze` produces a human-editable `recommendations.md`; the developer reviews and edits it; `apply` executes the chosen actions and verifies the result.
+
+The same prose is embedded in the binary as `connect-migrate agent-guide` for offline use.
+
 ## Layered design
 
 Three layers, increasing in agent integration:
