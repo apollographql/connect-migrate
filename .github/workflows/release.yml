@@ -51,6 +51,17 @@ jobs:
         with:
           targets: ${{ matrix.target.triple }}
 
+      # router/ has its own rust-toolchain.toml pinning channel 1.95.0.
+      # dtolnay/rust-toolchain installs targets against the action-default
+      # channel (stable), so when cargo runs inside router/ and switches
+      # to 1.95.0 it may not have the target installed for that channel.
+      # Re-add the target from inside router/ so it applies to whichever
+      # toolchain router pins. No-op for native builds.
+      - name: Add Rust target for router's pinned toolchain
+        if: '!matrix.target.cross'
+        working-directory: router
+        run: rustup target add ${{ matrix.target.triple }}
+
       - name: Cache cargo deps
         uses: Swatinem/rust-cache@v2
         with:
