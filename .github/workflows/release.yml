@@ -1,17 +1,30 @@
 name: Build connect-migrate
 
-# `workflow_dispatch` only for now — once the matrix is validated and
-# we've published our first real release, add a `push: tags: ['v*']`
-# trigger here that hard-pins to a known-good router ref and uploads
-# binaries as GitHub Release assets.
+# Two trigger modes:
+#
+# - `workflow_dispatch` for ad-hoc CI runs (developer iteration). The
+#   router ref is taken from the input; the binary version is the
+#   default "0.0.0-dev" baked in by the source.
+# - `push: tags: ['v*']` for cutting a release. The router ref is
+#   pinned by `env.RELEASE_ROUTER_REF` below (bump per release as the
+#   pinned router commit moves), and the binary version is read from
+#   the tag name (stripping the leading `v`). The `release` job at
+#   the bottom turns the matrix artifacts into a GitHub Release.
 
 on:
+  push:
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       router_ref:
         description: 'apollographql/router ref (branch, tag, or commit) to build from'
         required: true
         default: 'benjamn/connect-migrate-skeleton'
+
+env:
+  # Router commit/branch used by tag-triggered release builds. Bump as
+  # the connect-migrate tool catches up with apollo-federation changes.
+  RELEASE_ROUTER_REF: 'benjamn/connect-migrate-skeleton'
 
 jobs:
   build:
@@ -39,12 +52,24 @@ jobs:
         if: runner.os == 'Windows'
         run: git config --system core.longpaths true
 
-      - name: Checkout apollographql/router @ ${{ inputs.router_ref }}
+      - name: Checkout apollographql/router
         uses: actions/checkout@v4
         with:
           repository: apollographql/router
-          ref: ${{ inputs.router_ref }}
+          ref: ${{ inputs.router_ref || env.RELEASE_ROUTER_REF }}
           path: router
+
+      - name: Derive connect-migrate version
+        shell: bash
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            # Strip leading "v" from tag name (e.g. v0.0.1 -> 0.0.1)
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="0.0.0-dev"
+          fi
+          echo "CONNECT_MIGRATE_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "connect-migrate version: $VERSION"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -79,6 +104,12 @@ jobs:
       - name: Build connect-migrate (cross)
         if: matrix.target.cross
         working-directory: router/apollo-federation
+        env:
+          # Tell Docker to inherit CONNECT_MIGRATE_VERSION from the host env
+          # so cross's containerized cargo invocation can see it.
+          # Without this, the cross-built binary falls back to the
+          # "0.0.0-dev" default baked into main.rs.
+          CROSS_CONTAINER_OPTS: '-e CONNECT_MIGRATE_VERSION'
         run: cross build --release --target ${{ matrix.target.triple }} --bin connect-migrate --features connect-migrate
 
       - name: Strip (Unix, native)
@@ -139,3 +170,41 @@ jobs:
 
       - name: List built binaries
         run: ls -lah artifacts/*/connect-migrate-*
+
+  release:
+    name: GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'tag'
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifact tree + compute checksums
+        shell: bash
+        run: |
+          mkdir -p release
+          find artifacts -type f -name 'connect-migrate-*' -exec cp -v {} release/ \;
+          cd release
+          sha256sum connect-migrate-* > SHA256SUMS
+          ls -lah
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: |
+            connect-migrate ${{ github.ref_name }}, built from apollographql/router @ `${{ env.RELEASE_ROUTER_REF }}`.
+
+            See [SKILL.md](https://github.com/apollographql/connect-migrate/blob/main/SKILL.md) for the developer-facing migration guide (also embedded in the binary via `connect-migrate agent-guide`).
+
+            Verify a downloaded binary against `SHA256SUMS`.
+          files: |
+            release/connect-migrate-*
+            release/SHA256SUMS
+          fail_on_unmatched_files: true
