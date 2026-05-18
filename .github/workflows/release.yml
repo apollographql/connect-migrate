@@ -30,6 +30,10 @@ jobs:
       - name: Checkout connect-migrate workflow
         uses: actions/checkout@v4
 
+      - name: Enable git long-path support (Windows)
+        if: runner.os == 'Windows'
+        run: git config --system core.longpaths true
+
       - name: Checkout apollographql/router @ ${{ inputs.router_ref }}
         uses: actions/checkout@v4
         with:
@@ -53,13 +57,13 @@ jobs:
 
       - name: Build connect-migrate (native)
         if: '!matrix.target.cross'
-        working-directory: router
-        run: cargo build --release --target ${{ matrix.target.triple }} -p apollo-federation --bin connect-migrate --features apollo-federation/connect-migrate
+        working-directory: router/apollo-federation
+        run: cargo build --release --target ${{ matrix.target.triple }} --bin connect-migrate --features connect-migrate
 
       - name: Build connect-migrate (cross)
         if: matrix.target.cross
-        working-directory: router
-        run: cross build --release --target ${{ matrix.target.triple }} -p apollo-federation --bin connect-migrate --features apollo-federation/connect-migrate
+        working-directory: router/apollo-federation
+        run: cross build --release --target ${{ matrix.target.triple }} --bin connect-migrate --features connect-migrate
 
       - name: Strip (Unix)
         if: runner.os != 'Windows'
