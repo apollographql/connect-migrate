@@ -1,0 +1,113 @@
+name: Build connect-migrate
+
+# `workflow_dispatch` only for now — once the matrix is validated and
+# we've published our first real release, add a `push: tags: ['v*']`
+# trigger here that hard-pins to a known-good router ref and uploads
+# binaries as GitHub Release assets.
+
+on:
+  workflow_dispatch:
+    inputs:
+      router_ref:
+        description: 'apollographql/router ref (branch, tag, or commit) to build from'
+        required: true
+        default: 'benjamn/connect-migrate-skeleton'
+
+jobs:
+  build:
+    name: ${{ matrix.target.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { platform: darwin-arm64,  os: macos-latest,   triple: aarch64-apple-darwin,       cross: false }
+          - { platform: darwin-x64,    os: macos-13,       triple: x86_64-apple-darwin,        cross: false }
+          - { platform: linux-x64,     os: ubuntu-latest,  triple: x86_64-unknown-linux-gnu,   cross: false }
+          - { platform: linux-arm64,   os: ubuntu-latest,  triple: aarch64-unknown-linux-gnu,  cross: true  }
+          - { platform: win32-x64,     os: windows-latest, triple: x86_64-pc-windows-msvc,     cross: false }
+    runs-on: ${{ matrix.target.os }}
+    steps:
+      - name: Checkout connect-migrate workflow
+        uses: actions/checkout@v4
+
+      - name: Checkout apollographql/router @ ${{ inputs.router_ref }}
+        uses: actions/checkout@v4
+        with:
+          repository: apollographql/router
+          ref: ${{ inputs.router_ref }}
+          path: router
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target.triple }}
+
+      - name: Cache cargo deps
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: router
+
+      - name: Install cross (linux-arm64 only)
+        if: matrix.target.cross
+        run: cargo install cross --locked --version 0.2.5
+
+      - name: Build connect-migrate (native)
+        if: '!matrix.target.cross'
+        working-directory: router
+        run: cargo build --release --target ${{ matrix.target.triple }} -p apollo-federation --bin connect-migrate --features apollo-federation/connect-migrate
+
+      - name: Build connect-migrate (cross)
+        if: matrix.target.cross
+        working-directory: router
+        run: cross build --release --target ${{ matrix.target.triple }} -p apollo-federation --bin connect-migrate --features apollo-federation/connect-migrate
+
+      - name: Strip (Unix)
+        if: runner.os != 'Windows'
+        working-directory: router
+        run: strip target/${{ matrix.target.triple }}/release/connect-migrate
+
+      - name: Smoke-test the binary
+        if: '!matrix.target.cross && runner.os != ''Windows'''
+        working-directory: router
+        run: |
+          ./target/${{ matrix.target.triple }}/release/connect-migrate --version
+          ./target/${{ matrix.target.triple }}/release/connect-migrate agent-guide | head -3
+
+      - name: Smoke-test the binary (Windows)
+        if: runner.os == 'Windows'
+        working-directory: router
+        shell: pwsh
+        run: |
+          .\target\${{ matrix.target.triple }}\release\connect-migrate.exe --version
+          .\target\${{ matrix.target.triple }}\release\connect-migrate.exe agent-guide | Select-Object -First 3
+
+      - name: Stage artifact
+        shell: bash
+        working-directory: router
+        run: |
+          mkdir -p ../artifact
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp "target/${{ matrix.target.triple }}/release/connect-migrate.exe" "../artifact/connect-migrate-${{ matrix.target.platform }}.exe"
+          else
+            cp "target/${{ matrix.target.triple }}/release/connect-migrate" "../artifact/connect-migrate-${{ matrix.target.platform }}"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: connect-migrate-${{ matrix.target.platform }}
+          path: artifact/connect-migrate-${{ matrix.target.platform }}*
+          if-no-files-found: error
+
+  summary:
+    name: Summary
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List built binaries
+        run: ls -lah artifacts/*/connect-migrate-*
