@@ -244,25 +244,21 @@ For each section the developer approved:
 - **Preserve the surrounding quoting style** — if the source uses
   `"""`, keep `"""`; if it uses `"`, keep `"`.
 - **Re-indent the rewrite block to match the source.** The rewrite
-  block in `recommendations.md` is emitted with no leading
-  whitespace (the analyzer prints the decoded form). The source
-  block-string body usually has a consistent leading indent (e.g.
-  8 spaces if the directive sits at column 4 and its args are
-  indented one more level). Re-apply that indent on each line of the
-  rewrite block as you splice it in.
+  block in `recommendations.md` is emitted decoded (no leading
+  whitespace). When splicing it into a `"""..."""` block string,
+  re-apply the surrounding lines' indentation to each line of the
+  rewrite block so the resulting diff matches the project's
+  existing style.
 
-  > **Indentation is lenient.** GraphQL block strings (`"""..."""`)
-  > strip common leading whitespace at parse time, so an
-  > under-indented or over-indented body still parses correctly.
-  > Re-indenting is for diff hygiene and human readability, not for
-  > correctness. If you can't reliably compute the source's indent
-  > (e.g., the existing body has inconsistent leading whitespace),
-  > splice in the rewrite block as-is and note that you did so;
-  > the parser will accept it.
+  GraphQL block strings strip common leading whitespace at parse
+  time, so indentation is purely a readability concern; nothing
+  depends on it semantically. Always insert the rewritten code in
+  the most appropriate, conventional form for the surrounding
+  source — match the existing indent if it is consistent, or pick
+  the closest sensible indent if the existing body is irregular.
 
-  For single-line strings (`selection: "..."`), no indentation
-  question arises — just paste the rewrite block contents inside the
-  quotes.
+  Single-line strings (`selection: "..."`) carry no indentation
+  question; splice the rewrite block contents between the quotes.
 - **Do not touch sections marked `leave the source unchanged`.**
 
 ### Step B4: verify
