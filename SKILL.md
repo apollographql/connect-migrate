@@ -217,18 +217,23 @@ Re-read `recommendations.md`. For each section, confirm:
 
 For each section the developer marked `apply the rewrite below`:
 
-1. Open the source file at the `file:` path from the identity comment.
-2. Locate the `@connect(...)` directive on the `coordinate:`-named
-   schema element. Use `grep -n` plus the coordinate's field name to
-   find it; the `line:` hint from the identity comment is the
-   directive's approximate start.
+1. Open the source file at the `file:` path from the identity
+   comment.
+2. Navigate to **`line:`/`col:`** within that file — that is the
+   start of the `@connect(...)` directive. The `byte_offset:` field
+   gives the same location as a byte index, useful if your editor
+   prefers offsets. **Do not use `coordinate:` as the locator** —
+   coordinates aren't unique across files (extensions, multi-subgraph
+   setups) and are present only as informational metadata for human
+   review. Use coordinate to sanity-check that you're looking at the
+   right directive after navigating, not to find it.
 3. The selection lives inside that directive's `selection: "..."`
    argument — a single-line `"..."` string or a triple-quoted
    `"""..."""` block string. The body of that string is what gets
    replaced.
 4. Show the developer the diff (your editor / agent's preview tool /
-   `git diff` after a dry run, depending on environment). Get explicit
-   go-ahead before writing.
+   `git diff` after a dry run, depending on environment). Get
+   explicit go-ahead before writing.
 
 ### Step B3: write the edits
 
@@ -393,8 +398,9 @@ bullets, prose) is free-form markdown.
 |-------------------|-------|
 | `id`              | Stable 8-hex content-hash of the site. Survives line shifts in the source file. |
 | `file`            | Path relative to `project-root`. |
-| `line`, `col`     | Position at analyze time. Approximate (`@connect` directive start); apply re-locates by text match. |
-| `coordinate`      | GraphQL schema coordinate (`Type.field`). |
+| `line`, `col`     | 1-indexed position of the host `@connect` directive's start. **Authoritative locator for Mode B.** |
+| `byte_offset`     | Byte offset of the host `@connect` directive's start. Same identification semantics as `line`/`col`; pick whichever your editor prefers. |
+| `coordinate`      | GraphQL schema coordinate (`Type.field`). **Informational only.** Not unique across files; do not use as a locator. |
 | `kind`            | One of: `key_quoted_flipped_to_literal_string`, `key_flipped_to_literal_null`, `key_flipped_to_literal_bool`, `key_field_flipped_to_literal_string`. |
 | `text`            | The literal source text of the token (HTML-comment-escaped). |
 | `followed_by`     | One of: `nothing`, `sub_selection`, `key_access`, `method`, `question`. |
