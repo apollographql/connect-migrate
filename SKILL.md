@@ -93,19 +93,23 @@ connect-migrate analyze subgraphs/billing subgraphs/orders \
   -o recommendations.md
 ```
 
-### Step A2: triage each site (you are the analyzer here)
+### Step A2: triage each token (you are the analyzer here)
 
-For each site `analyze` writes into `recommendations.md`, your job is
-to choose a **recommended decision** based on what the source looks
-like. The recommendation is your best guess; the developer can
-override it before `apply` runs.
+For every divergent token within a section, the analyzer classifies it
+into one of two buckets. The classification drives **two** things:
 
-There are three buckets. Most sites belong cleanly to one of them.
+1. Whether the token's text gets a `$.` prefix in the section's
+   pre-filled Proposed rewrite block.
+2. The default state of the section-level checklist — `apply the
+   rewrite above` is pre-checked iff at least one token in the
+   section was classified `keep-v0.3`.
 
-#### Bucket 1 — Almost certainly a field reference (`keep-v0.3`)
+The developer can override either default. The triage rules:
 
-The v0.3 reading was intentional and the v0.4 literal reading is wrong.
-Heuristics for this bucket:
+#### Keep-v0.3 — Almost certainly a field reference
+
+The v0.3 reading was intentional and the v0.4 literal reading is
+wrong. The token gets `$.` prepended in the rewrite block. Heuristics:
 
 - Quoted string with characters that aren't valid in a GraphQL bare
   identifier (`@`, `:`, `/`, `-`, `.`, spaces). Real examples from the
@@ -119,14 +123,14 @@ Heuristics for this bucket:
   unambiguous; the parser-level fix in commit `bee6b0032` already
   handles this case, but legacy schemas may still surface it).
 
-**Recommended:** `keep-v0.3`. Apply will rewrite `"@odata.nextLink"` to
-`$."@odata.nextLink"` (or the corresponding `$.null` / `$.true` /
-`$.false` form for bare-token field references).
+Rewrite shape: `"@odata.nextLink"` → `$."@odata.nextLink"`; bare
+`null`/`true`/`false` → `$.null` / `$.true` / `$.false`.
 
-#### Bucket 2 — Almost certainly a literal (`embrace-v0.4`)
+#### Embrace-v0.4 — Almost certainly a literal
 
 The v0.4 reading is what the developer wanted all along; the v0.3
-behavior was silently broken. Heuristics:
+behavior was silently broken. The token is left unchanged in the
+rewrite block. Heuristics:
 
 - Bare `null` / `true` / `false`. The corpus shows these are almost
   always intended as placeholder values — `description: null`,
@@ -140,24 +144,24 @@ behavior was silently broken. Heuristics:
 - Currency-like or formatting tokens: `"0.00"`, `"-"`, `"2x"`.
 - Single-character placeholders.
 
-**Recommended:** `embrace-v0.4`. Apply makes no source change for these;
-the v0.4 upgrade is itself the fix.
+If every token in the section falls into this bucket, the section's
+Proposed rewrite equals the original selection and the checklist
+defaults to `leave the source unchanged`.
 
-#### Bucket 3 — Ambiguous (no default recommendation)
+#### What about ambiguous tokens?
 
-Sites that don't fit either bucket cleanly. Examples: medium-length
-strings that could plausibly be either a REST field name or an
-intended literal; tokens used only on one branch of a `->match(…)`.
-
-**Recommended:** leave the `Decision:` line empty (or write `???`),
-and add a short note describing what's ambiguous. The developer must
-fill it in.
+Sections with at least one ambiguous token still default to
+`apply the rewrite above` with the safest fortification pre-applied
+(the v0.3 reading is preserved). The reasoning bullet under the
+Original selection should note the ambiguity so the developer knows
+to inspect the rewrite. If they accept v0.4 for the ambiguous token,
+they edit that line of the rewrite block back to the original form.
 
 ### Step A3: write `recommendations.md`
 
 `connect-migrate analyze` produces the file. You don't author it by
-hand — but you do need to know the format, because Mode B reads it
-back, and because the developer may ask why a particular field is
+hand — but you do need to know the format because Mode B reads it
+back, and because the developer may ask why a particular section is
 shaped the way it is.
 
 See the [Recommendations format](#recommendations-format) section
@@ -167,11 +171,13 @@ below for the spec and a worked example.
 
 Tell the developer the file is ready and what they should look for:
 
-> I've written `recommendations.md` with N sites that need a decision.
-> Most have a recommended choice (`keep-v0.3` or `embrace-v0.4`) you
-> can leave as-is. The K ambiguous sites need your input — search the
-> file for `Decision: ???`. When you're satisfied, run
-> `connect-migrate apply recommendations.md` (or ask me to run it).
+> I've written `recommendations.md` with N sections covering K
+> divergent `@connect` tokens. Each section has a Proposed rewrite
+> block pre-filled with my recommendation and a two-option checklist
+> below it. Edit the rewrite block if you want a different
+> replacement, flip the checkbox if you want to leave the source
+> unchanged instead, then run `connect-migrate apply recommendations.md`
+> (or ask me to run it).
 
 Do not run `apply` automatically. The whole point of the two-step flow
 is that the developer reviews the file first.
@@ -196,18 +202,19 @@ before writing.
 If `--dry-run` reports any of the following, stop and surface them to
 the developer:
 
-- **Unrecognized decision** — a `Decision:` field with a value other
-  than `keep-v0.3` / `embrace-v0.4` / `skip` / `custom: …`.
-- **Stale site identifier** — the source file the recommendation
-  refers to has been edited and the site's content hash no longer
+- **No checkbox checked, or both checked** — every section must have
+  exactly one of `[x] apply the rewrite above` or `[x] leave the
+  source unchanged`. Apply refuses to act on ambiguous sections.
+- **Rewrite block is empty when `apply the rewrite above` is checked**
+  — the developer accidentally cleared the block. Apply refuses.
+- **Stale section identifier** — the source file the recommendation
+  refers to has been edited and the section's content hash no longer
   matches. Re-run `connect-migrate analyze` to regenerate the file,
   then re-apply the developer's prior decisions.
   <!-- FOLLOW-UP: future versions may auto-refresh by re-running
        analyze under the hood and three-way-merging the developer's
-       Decision fields onto the fresh sites. For now, prompt the
-       developer to re-run analyze themselves. -->
-- **Missing decision** — a `Decision: ???` (or empty) was left in the
-  file.
+       checklist + rewrite edits onto the fresh sections. For now,
+       prompt the developer to re-run analyze themselves. -->
 
 ### Step B2: apply for real
 
@@ -217,16 +224,16 @@ Once the dry-run looks right:
 connect-migrate apply recommendations.md
 ```
 
-This writes the source edits. `recommendations.md` is updated in place
-with a `Status:` field on each site (`applied` / `skipped` /
+This writes the source edits. `recommendations.md` is updated in
+place with a `**Status:**` line on each section (`applied` /
 `unchanged`) so it remains a durable record of what happened.
 
 ### Step B3: verify
 
 `apply` automatically re-runs `analyze` after writing edits and
-reports the result. If any site marked `keep-v0.3` still shows up as
-divergent, that's a bug — surface it to the developer and don't claim
-success.
+reports the result. If any section the developer marked `apply the
+rewrite above` still shows up as divergent, that's a bug — surface it
+to the developer and don't claim success.
 
 Manual final sanity checks worth doing:
 
@@ -240,51 +247,40 @@ Manual final sanity checks worth doing:
 
 ## Recommendations format
 
-`connect-migrate analyze` writes a single markdown file with structured
-identity comments and human-readable decisions. The format is
-versioned via the leading `<!-- connect-migrate recommendations v1 -->`
-comment; `apply` refuses to run against a file whose version it
-doesn't recognize.
+`connect-migrate analyze` writes a single markdown file with one
+section per `@connect(selection: …)` directive that contains at least
+one divergent token. The format is versioned via the leading
+`<!-- connect-migrate recommendations v1 -->` comment; `apply` refuses
+to run against a file whose version it doesn't recognize.
 
-### Document structure
+### Document structure (worked example)
 
-```markdown
+````````markdown
 <!-- connect-migrate recommendations v1 -->
 <!-- generator: connect-migrate 0.X.Y -->
-<!-- generated-at: 2026-05-18T18:34:00Z -->
+<!-- generated-at: 2026-05-19T14:28:18Z -->
 <!-- project-root: . -->
 
 # `connect/v0.3` → `connect/v0.4` migration recommendations
 
-Generated by `connect-migrate analyze` on 2026-05-18.
-
-Edit the `Decision:` line on each site below, then run:
+2 section(s) need a decision (5 divergent token(s) across 2 `@connect`
+selection(s)). For each section, edit the **Proposed rewrite** block
+as needed and check the box that reflects your decision, then run:
 
     connect-migrate apply recommendations.md
 
-**Decision values:**
+Each section has two decision options. **Exactly one must be checked.**
+The defaults reflect what the analyzer recommends; edit the Proposed
+rewrite block, flip the checkbox, or both.
 
-- `keep-v0.3` — preserve the v0.3 field-reference reading by
-  prepending `$.` to the token.
-- `embrace-v0.4` — accept the new v0.4 literal reading; no source
-  change.
-- `skip` — make no change; do not raise this site again on future
-  `analyze` runs.
-  <!-- FOLLOW-UP: where the persistence marker lives in source is a
-       Phase-4 implementation decision (in-line `# connect-migrate:
-       ignore` GraphQL comment? sidecar `.connect-migrate-ignore`
-       file?). Pin in Phase 4. -->
-
-- `custom: <text>` — replace the token with the given text exactly.
-  Use this only when you know what you're doing. Example: to keep
-  the v0.3 field-reference reading *and* chain a subselection,
-  override `keep-v0.3` (which only prepends `$.`) with
-  `custom: $."foo-bar".baz`. The trailing characters after
-  the `custom:` keyword become the literal replacement.
+- **apply the rewrite above** — apply uses the contents of the
+  Proposed rewrite block as the new selection.
+- **leave the source unchanged** — apply makes no change (accept the
+  v0.4 literal reading).
 
 ---
 
-## site 1 of N — `subgraphs/billing/connector.graphql`
+## section 1 of 2 — `subgraphs/billing/connector.graphql` (`Invoice.partner`)
 
 <!-- connect-migrate site v1
   id: fa3c7e92
@@ -295,95 +291,133 @@ Edit the `Decision:` line on each site below, then run:
   kind: key_quoted_flipped_to_literal_string
   text: "sold-to"
   followed_by: nothing
+  recommendation: keep-v0.3
+-->
+<!-- connect-migrate site v1
+  id: 7b22a014
+  file: subgraphs/billing/connector.graphql
+  line: 42
+  col: 17
+  coordinate: Invoice.partner
+  kind: key_quoted_flipped_to_literal_string
+  text: "bill-to"
+  followed_by: nothing
+  recommendation: keep-v0.3
 -->
 
-In `Invoice.partner`, the token `"sold-to"` will reparse as a JSON
-string literal under `connect/v0.4`. Under `connect/v0.3` it was a
-field reference to a backend field named `sold-to`.
+**Original selection:**
 
 ```graphql
 soldTo: "sold-to"
 billTo: "bill-to"
 ```
 
-The quoted text contains `-`, which is not valid in a GraphQL bare
-identifier, so `"sold-to"` is almost certainly a REST field name.
+- `"sold-to"` contains characters not valid in a GraphQL identifier,
+  so it is almost certainly a quoted field name from a REST response.
+- `"bill-to"` contains characters not valid in a GraphQL identifier,
+  so it is almost certainly a quoted field name from a REST response.
 
-**Decision:** `keep-v0.3`
+**Proposed rewrite** (edit if needed):
+
+```graphql
+soldTo: $."sold-to"
+billTo: $."bill-to"
+```
+
+**Decide:**
+- [x] apply the rewrite above
+- [ ] leave the source unchanged
 
 ---
 
-## site 2 of N — `subgraphs/billing/connector.graphql`
+## section 2 of 2 — `subgraphs/billing/connector.graphql` (`Invoice.status`)
 
 <!-- connect-migrate site v1
-  id: 7b22a014
-  file: subgraphs/billing/connector.graphql
-  line: 91
-  col: 11
-  coordinate: Invoice.status
-  kind: key_flipped_to_literal_null
-  text: null
-  followed_by: nothing
+  id: 5454cd79
+  ...
+  text: "null"
+  recommendation: embrace-v0.4
 -->
 
-In `Invoice.status`, `status: null` will reparse as a literal `null`
-value under `connect/v0.4`. Under `connect/v0.3` the parser tried to
-look up a field named `null`, didn't find it, and returned undefined
-(which GraphQL usually surfaced as `null` anyway).
+**Original selection:**
 
 ```graphql
 status: null
 ```
 
-The v0.4 reading is almost certainly what was intended.
+- Bare `null` in value position is almost always intended as a literal
+  null value; v0.3 returned the same thing accidentally via response
+  normalization.
 
-**Decision:** `embrace-v0.4`
+**Proposed rewrite** (edit if needed):
+
+```graphql
+status: null
 ```
 
-### Per-site fields
+**Decide:**
+- [ ] apply the rewrite above
+- [x] leave the source unchanged
+````````
 
-The HTML comment block at the top of each site is the machine-readable
-identity. `apply` parses it; everything else is free-form markdown.
+### Per-site identity comments
 
-| Field         | Required | Notes |
-|---------------|----------|-------|
-| `id`          | yes      | Stable content-hash of the site (8 hex chars). Survives line shifts in the source file. |
-| `file`        | yes      | Path relative to `project-root`. |
-| `line`, `col` | yes      | Position at analyze time. Updated automatically on apply if shifted. |
-| `coordinate`  | yes      | GraphQL schema coordinate (`Type.field`). |
-| `kind`        | yes      | One of: `key_quoted_flipped_to_literal_string`, `key_flipped_to_literal_null`, `key_flipped_to_literal_bool`, `key_field_flipped_to_literal_string`. |
-| `text`        | yes      | The literal source text of the token (quoted strings include their quotes). |
-| `followed_by` | yes      | One of: `nothing`, `sub_selection`, `key_access`, `method`, `question`. |
+The HTML comment block at the top of each section is the
+machine-readable identity. There is one comment per divergent token
+within the section. `apply` parses these; everything else (reasoning
+bullets, prose) is free-form markdown.
 
-### Decision field
+| Field             | Notes |
+|-------------------|-------|
+| `id`              | Stable 8-hex content-hash of the site. Survives line shifts in the source file. |
+| `file`            | Path relative to `project-root`. |
+| `line`, `col`     | Position at analyze time. Approximate (`@connect` directive start); apply re-locates by text match. |
+| `coordinate`      | GraphQL schema coordinate (`Type.field`). |
+| `kind`            | One of: `key_quoted_flipped_to_literal_string`, `key_flipped_to_literal_null`, `key_flipped_to_literal_bool`, `key_field_flipped_to_literal_string`. |
+| `text`            | The literal source text of the token (HTML-comment-escaped). |
+| `followed_by`     | One of: `nothing`, `sub_selection`, `key_access`, `method`, `question`. |
+| `recommendation`  | The analyzer's per-token guess: `keep-v0.3` or `embrace-v0.4`. |
 
-A site's `**Decision:**` line is the editable part. Whitespace is
-forgiving; case is not. Recognized values:
+### Decision checklist
 
-- `keep-v0.3`
-- `embrace-v0.4`
-- `skip`
-- `custom: <text>` — `<text>` is the literal replacement.
-- empty or `???` — no decision yet; `apply` will refuse to touch this
-  site and report it.
+A section's `**Decide:**` block is the editable part. The two options
+appear as markdown checkboxes:
 
-Add any explanatory prose around the decision freely — `apply` only
-parses the line beginning with `**Decision:**` (or `Decision:` with
-optional bold).
+```markdown
+**Decide:**
+- [x] apply the rewrite above
+- [ ] leave the source unchanged
+```
+
+`apply` matches by position: the first `- [x]` (or `- [X]`) line means
+"apply the rewrite," the second means "leave alone." Exactly one must
+be checked.
+
+### Proposed rewrite block
+
+Each section has a fenced ```graphql block above the checklist
+labelled `**Proposed rewrite** (edit if needed):`. Its contents are
+the literal text that `apply` writes when `apply the rewrite above`
+is checked. The analyzer pre-fills the block with `$.` fortifications
+applied to every token the heuristic classified `keep-v0.3`; tokens
+classified `embrace-v0.4` stay as-is.
+
+To customize a rewrite, the developer edits the block. To revert any
+specific fortification, they delete the `$.` prefix on that line. To
+accept a stricter interpretation than the analyzer suggested, they
+flip the checkbox (or edit the block to do nothing — same effect, but
+the checkbox is clearer).
 
 ### Status field (added by apply)
 
 After `connect-migrate apply` runs, it appends a `**Status:**` line to
-each site:
+each section:
 
-- `applied: keep-v0.3` — source edited.
-- `applied: custom` — source edited with custom replacement.
-- `unchanged: embrace-v0.4` — left as-is.
-- `unchanged: skip` — left as-is; recorded for future analyze runs.
-- `error: <reason>` — apply failed for this site.
+- `applied` — source edited from the Proposed rewrite block.
+- `unchanged` — left as-is.
+- `error: <reason>` — apply failed for this section.
 
-The file remains on disk as a durable record. Subsequent `analyze`
-runs read prior `skip` decisions and respect them by default.
+The file remains on disk as a durable audit record of what happened.
 
 ---
 
@@ -394,7 +428,8 @@ These come up rarely but are worth knowing:
 - **`legacy_object_to_lit_object`** — a cosmetic AST shape difference
   from the unification itself. Same evaluation semantics under both
   grammars. `analyze` does not emit these as sites; if you see one in
-  a recommendations file from a prior tool version, mark it `skip`.
+  a recommendations file from a prior tool version, check `leave the
+  source unchanged` for that section.
 - **`v04_only_accepts`** — the selection uses v0.4-only syntax (e.g.
   the `…` spread). The developer is already committed to v0.4 here; no
   migration is possible or needed. `analyze` does not emit these; if
@@ -414,8 +449,9 @@ These come up rarely but are worth knowing:
   knowledge beats your priors.
 - Lead with the source range and the proposed before/after. Don't
   bury the diff under prose.
-- It is correct and often preferable to leave a site as `embrace-v0.4`.
-  That isn't a missed fix — it's a deliberate upgrade.
+- It is correct and often preferable to check `leave the source
+  unchanged` on a section. That isn't a missed fix — it's a
+  deliberate upgrade to the cleaner v0.4 reading.
 - For genuinely ambiguous sites, ask. The developer pays one extra
   message and avoids a behavior regression.
 - After `apply`, summarize: how many sites changed, how many were left
