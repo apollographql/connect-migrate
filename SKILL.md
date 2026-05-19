@@ -172,68 +172,82 @@ below for the spec and a worked example.
 Tell the developer the file is ready and what they should look for:
 
 > I've written `recommendations.md` with N sections covering K
-> divergent `@connect` tokens. Each section has a Proposed rewrite
-> block pre-filled with my recommendation and a two-option checklist
-> below it. Edit the rewrite block if you want a different
-> replacement, flip the checkbox if you want to leave the source
-> unchanged instead, then run `connect-migrate apply recommendations.md`
-> (or ask me to run it).
+> divergent `@connect` tokens. Each section has a checklist with two
+> options and a rewrite block pre-filled with my recommendation.
+> Review each section: flip the checkbox if you want to leave the
+> source unchanged instead, edit the rewrite block if you want a
+> different replacement, or both. When you're ready, tell me and
+> I'll apply the changes to your source files (per Mode B in this
+> skill) and re-run `connect-migrate analyze` to verify.
 
-Do not run `apply` automatically. The whole point of the two-step flow
-is that the developer reviews the file first.
+Do not start editing source files automatically. The whole point of
+the two-step flow is that the developer reviews `recommendations.md`
+before any source change.
 
 ---
 
-## Mode B — Apply: consume an edited `recommendations.md`
+## Mode B — Apply: edit the source from the developer's decisions
 
-Use this mode when a `recommendations.md` exists and the developer
-asks you to apply it (or says they're done editing).
+Use this mode when the developer has reviewed `recommendations.md`
+and is ready to commit the changes (or has said so explicitly).
 
-### Step B1: dry-run first
+`connect-migrate` does not include an `apply` subcommand. The
+mechanical text replacement step is **yours** — that's why this
+SKILL.md exists. The `recommendations.md` format is designed so that
+a tool-using agent (you) can apply it deterministically with normal
+file-editing primitives.
 
-```sh
-connect-migrate apply recommendations.md --dry-run
-```
+### Step B1: read the recommendations file and validate it
 
-`--dry-run` prints the unified diff that `apply` would produce, but
-writes nothing. Show the diff to the developer and ask for go-ahead
-before writing.
+Re-read `recommendations.md`. For each section, confirm:
 
-If `--dry-run` reports any of the following, stop and surface them to
-the developer:
+- **Exactly one checkbox is marked `[x]`** in the `**Decide:**` list.
+  If zero or two are checked, stop and ask the developer to fix it.
+- **If `apply the rewrite below` is checked, the rewrite block is
+  non-empty.** A blank block means the developer accidentally
+  cleared it; ask before proceeding.
+- **The HTML identity comments match a current `@connect` directive
+  in the listed file.** Re-running `connect-migrate analyze` now and
+  spot-checking IDs is cheaper than discovering a stale ID after
+  editing. If a section's ID is no longer in the fresh output, the
+  developer edited the source between analyze and now — regenerate
+  the file and re-collect their decisions.
 
-- **No checkbox checked, or both checked** — every section must have
-  exactly one of `[x] apply the rewrite above` or `[x] leave the
-  source unchanged`. Apply refuses to act on ambiguous sections.
-- **Rewrite block is empty when `apply the rewrite above` is checked**
-  — the developer accidentally cleared the block. Apply refuses.
-- **Stale section identifier** — the source file the recommendation
-  refers to has been edited and the section's content hash no longer
-  matches. Re-run `connect-migrate analyze` to regenerate the file,
-  then re-apply the developer's prior decisions.
-  <!-- FOLLOW-UP: future versions may auto-refresh by re-running
-       analyze under the hood and three-way-merging the developer's
-       checklist + rewrite edits onto the fresh sections. For now,
-       prompt the developer to re-run analyze themselves. -->
+### Step B2: preview the edits
 
-### Step B2: apply for real
+For each section the developer marked `apply the rewrite below`:
 
-Once the dry-run looks right:
+1. Open the source file at the `file:` path from the identity comment.
+2. Locate the `@connect(...)` directive on the `coordinate:`-named
+   schema element. Use `grep -n` plus the coordinate's field name to
+   find it; the `line:` hint from the identity comment is the
+   directive's approximate start.
+3. The selection lives inside that directive's `selection: "..."`
+   argument — a single-line `"..."` string or a triple-quoted
+   `"""..."""` block string. The body of that string is what gets
+   replaced.
+4. Show the developer the diff (your editor / agent's preview tool /
+   `git diff` after a dry run, depending on environment). Get explicit
+   go-ahead before writing.
 
-```sh
-connect-migrate apply recommendations.md
-```
+### Step B3: write the edits
 
-This writes the source edits. `recommendations.md` is updated in
-place with a `**Status:**` line on each section (`applied` /
-`unchanged`) so it remains a durable record of what happened.
+For each section the developer approved:
 
-### Step B3: verify
+- Replace the body of `selection: "..."` (or `selection: """..."""`)
+  with the contents of that section's rewrite block. Preserve the
+  surrounding quoting style — if the source uses `"""`, keep `"""`;
+  if it uses `"`, keep `"`.
+- Preserve indentation of the surrounding lines.
+- Do **not** touch sections marked `leave the source unchanged`.
 
-`apply` automatically re-runs `analyze` after writing edits and
-reports the result. If any section the developer marked `apply the
-rewrite above` still shows up as divergent, that's a bug — surface it
-to the developer and don't claim success.
+### Step B4: verify
+
+Re-run `connect-migrate analyze .`. The headline number should drop
+to zero (or to exactly the count of sections the developer chose to
+`leave the source unchanged`). If a section the developer marked
+`apply the rewrite below` still appears in the re-analyze output,
+that's a bug — surface it before declaring success.
 
 Manual final sanity checks worth doing:
 
@@ -243,6 +257,17 @@ Manual final sanity checks worth doing:
 - Spot-check 1–2 representative selections against real backend
   responses if a sandbox is available.
 
+### Step B5: archive the audit trail
+
+`recommendations.md` is a durable record of what was decided and
+what was changed. Suggest the developer commit it alongside the
+source edits, with a commit message like:
+
+    chore(connectors): v0.3 → v0.4 migration
+
+    Driven by `connect-migrate analyze`; per-decision audit log
+    preserved at recommendations.md.
+
 ---
 
 ## Recommendations format
@@ -250,8 +275,9 @@ Manual final sanity checks worth doing:
 `connect-migrate analyze` writes a single markdown file with one
 section per `@connect(selection: …)` directive that contains at least
 one divergent token. The format is versioned via the leading
-`<!-- connect-migrate recommendations v1 -->` comment; `apply` refuses
-to run against a file whose version it doesn't recognize.
+`<!-- connect-migrate recommendations v1 -->` comment; future tool
+versions may extend it, but consumers (you, when in Mode B) should
+refuse to act on a file whose version they don't recognize.
 
 ### Document structure (worked example)
 
@@ -265,18 +291,18 @@ to run against a file whose version it doesn't recognize.
 
 2 section(s) need a decision (5 divergent token(s) across 2 `@connect`
 selection(s)). For each section, edit the rewrite block as needed and
-check the box that reflects your decision, then run:
-
-    connect-migrate apply recommendations.md
+check the box that reflects your decision. Then hand the edited file
+back to your migration assistant (`connect-migrate agent-guide` prints
+the prose it should follow).
 
 Each section has two decision options. **Exactly one must be checked.**
 The defaults reflect what the analyzer recommends; edit the rewrite
 block, flip the checkbox, or both.
 
-- **leave the source unchanged** — apply makes no change (accept the
-  v0.4 literal reading).
-- **apply the rewrite below** — apply uses the contents of the rewrite
-  block as the new selection.
+- **leave the source unchanged** — your assistant makes no change
+  (accept the v0.4 literal reading).
+- **apply the rewrite below** — your assistant replaces the selection
+  contents with the rewrite block below.
 
 ---
 
@@ -385,17 +411,19 @@ appear as markdown checkboxes, in this order:
 - [x] apply the rewrite below
 ```
 
-`apply` matches by position: the first `- [x]` (or `- [X]`) line means
-"leave alone," the second means "apply the rewrite." Exactly one must
-be checked.
+Position-based binding: the first checkbox = "leave alone," the
+second = "apply the rewrite." Exactly one must be checked. When you
+parse this in Mode B, scan for `- [x]` or `- [X]` lines within the
+`**Decide:**` block and key off their position.
 
 ### Rewrite block
 
 Each section has a fenced ```graphql block immediately below the
-checklist. Its contents are the literal text that `apply` writes when
-`apply the rewrite below` is checked. The analyzer pre-fills the block
-with `$.` fortifications applied to every token the heuristic
-classified `keep-v0.3`; tokens classified `embrace-v0.4` stay as-is.
+checklist. Its contents are the literal text that should replace the
+selection body when `apply the rewrite below` is checked. The
+analyzer pre-fills the block with `$.` fortifications applied to
+every token the heuristic classified `keep-v0.3`; tokens classified
+`embrace-v0.4` stay as-is.
 
 Byte-level structure around each token (commas, whitespace,
 indentation, other tokens) is preserved verbatim from the source —
@@ -407,18 +435,8 @@ To customize a rewrite, the developer edits the block. To revert any
 specific fortification, they delete the `$.` prefix on that line. To
 accept the analyzer's recommendation as-is, they leave the block
 alone; flipping the checkbox without editing the block also works
-(`leave the source unchanged` makes apply ignore the block entirely).
-
-### Status field (added by apply)
-
-After `connect-migrate apply` runs, it appends a `**Status:**` line to
-each section:
-
-- `applied` — source edited from the Proposed rewrite block.
-- `unchanged` — left as-is.
-- `error: <reason>` — apply failed for this section.
-
-The file remains on disk as a durable audit record of what happened.
+(`leave the source unchanged` means the rewrite block is ignored
+entirely).
 
 ---
 

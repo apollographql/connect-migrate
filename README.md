@@ -33,17 +33,21 @@ connect-migrate --version       # connect-migrate 0.0.1
 connect-migrate agent-guide     # prints the embedded migration guide
 ```
 
-## How it works (today)
+## How it works
 
-For now, `connect-migrate` exposes one subcommand:
+The migration flow is driven by an agent following [`SKILL.md`](SKILL.md). The agent calls the `connect-migrate` binary for the heavy lifting (dual-parsing every selection under v0.3 and v0.4 grammars) and applies the developer-approved source edits using its own file-editing primitives. There is no `apply` subcommand — source rewriting is the agent's job, against the structured `recommendations.md` the analyzer produces.
 
-- **`connect-migrate agent-guide`** — prints a migration guide for an agent (or a human) to follow when walking a project through `connect/v0.3` → `connect/v0.4`. The full text is embedded in the binary; no network access needed once installed.
+`connect-migrate` exposes two subcommands:
 
-The plan is for the binary to grow `analyze` (produces a `recommendations.md` summarizing every site that needs attention) and `apply` (executes the developer's chosen actions from that file) in subsequent releases.
+- **`connect-migrate analyze [PATH]...`** — walks the given paths (default `.`), finds every `@connect(selection: ...)` directive, dual-parses each, and writes a `recommendations.md` to stdout summarizing every section that needs a decision before upgrading. Pipe to a file (`> recommendations.md`) or pass `-o`/`--output`.
+- **`connect-migrate agent-guide`** — prints the migration skill prose embedded in the binary. Pipe into your agent of choice, or read it manually.
 
 ## Agent skill
 
-[`SKILL.md`](SKILL.md) is the canonical text an agent (Claude Code, Cursor, Cline, or any other) follows when assisting with the migration. It describes a two-step flow — `analyze` produces a human-editable `recommendations.md`; the developer reviews and edits it; `apply` executes the chosen actions and verifies the result.
+[`SKILL.md`](SKILL.md) is the canonical text an agent (Claude Code, Cursor, Cline, or any other) follows when assisting with the migration. It describes a two-mode flow:
+
+- **Mode A — Analyze.** The agent runs `connect-migrate analyze`, writes `recommendations.md`, and hands it to the developer for review.
+- **Mode B — Apply.** The developer edits `recommendations.md` (flip checkboxes, edit rewrite blocks). The agent reads it back and uses its file-editing tools to rewrite the developer's `.graphql` source files accordingly, then re-runs analyze to verify zero unintended divergence remains.
 
 The same prose is embedded in the binary as `connect-migrate agent-guide` for offline use.
 
