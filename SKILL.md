@@ -239,12 +239,31 @@ For each section the developer marked `apply the rewrite below`:
 
 For each section the developer approved:
 
-- Replace the body of `selection: "..."` (or `selection: """..."""`)
-  with the contents of that section's rewrite block. Preserve the
-  surrounding quoting style — if the source uses `"""`, keep `"""`;
-  if it uses `"`, keep `"`.
-- Preserve indentation of the surrounding lines.
-- Do **not** touch sections marked `leave the source unchanged`.
+- **Replace the body** of `selection: "..."` (or `selection: """..."""`)
+  with the contents of that section's rewrite block.
+- **Preserve the surrounding quoting style** — if the source uses
+  `"""`, keep `"""`; if it uses `"`, keep `"`.
+- **Re-indent the rewrite block to match the source.** The rewrite
+  block in `recommendations.md` is emitted with no leading
+  whitespace (the analyzer prints the decoded form). The source
+  block-string body usually has a consistent leading indent (e.g.
+  8 spaces if the directive sits at column 4 and its args are
+  indented one more level). Re-apply that indent on each line of the
+  rewrite block as you splice it in.
+
+  > **Indentation is lenient.** GraphQL block strings (`"""..."""`)
+  > strip common leading whitespace at parse time, so an
+  > under-indented or over-indented body still parses correctly.
+  > Re-indenting is for diff hygiene and human readability, not for
+  > correctness. If you can't reliably compute the source's indent
+  > (e.g., the existing body has inconsistent leading whitespace),
+  > splice in the rewrite block as-is and note that you did so;
+  > the parser will accept it.
+
+  For single-line strings (`selection: "..."`), no indentation
+  question arises — just paste the rewrite block contents inside the
+  quotes.
+- **Do not touch sections marked `leave the source unchanged`.**
 
 ### Step B4: verify
 
