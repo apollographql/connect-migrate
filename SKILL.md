@@ -197,6 +197,34 @@ SKILL.md exists. The `recommendations.md` format is designed so that
 a tool-using agent (you) can apply it deterministically with normal
 file-editing primitives.
 
+### Safety contract
+
+Every edit you make in Mode B must leave the developer's source
+code **at least as good as it was** along every axis the developer
+cares about:
+
+- **Parsing.** Each touched `.graphql` file must continue to parse
+  cleanly under `connect/v0.4` after your edits. The post-apply
+  `connect-migrate analyze` run in Step B4 is the authoritative check;
+  any section the developer approved for rewrite must show zero
+  residual divergence in that run.
+- **Behavior.** The semantic intent the developer expressed
+  (via checkbox and rewrite-block edits) is what gets written; do
+  not silently expand the change set.
+- **Formatting.** Untouched lines stay byte-identical. Touched
+  selections splice in the rewritten body at the source's
+  conventional indentation; nothing outside the affected
+  `selection: "..."` argument is modified.
+- **Recovery.** If any post-apply check fails for a given section,
+  revert that section's edit and report the failure to the
+  developer before declaring the run successful. Partial-success
+  is acceptable only when the developer can see clearly what did
+  and did not apply.
+
+If you cannot satisfy these guarantees for a section, **stop and
+escalate to the developer.** Their source is not for fall-back
+heuristics to chip away at.
+
 ### Step B1: read the recommendations file and validate it
 
 Re-read `recommendations.md`. For each section, confirm:
@@ -263,19 +291,29 @@ For each section the developer approved:
 
 ### Step B4: verify
 
-Re-run `connect-migrate analyze .`. The headline number should drop
-to zero (or to exactly the count of sections the developer chose to
-`leave the source unchanged`). If a section the developer marked
-`apply the rewrite below` still appears in the re-analyze output,
-that's a bug — surface it before declaring success.
+Re-run `connect-migrate analyze .`. The expected post-apply state:
 
-Manual final sanity checks worth doing:
+- **Zero residual divergence** for any section the developer
+  approved for rewrite. The section's `id` should not appear in
+  the new analyze output.
+- **Sections marked `leave the source unchanged`** still appear in
+  the new analyze output with the same `id`s; their source is
+  byte-identical.
+- **No new sections** appear that weren't in the original run.
+  Their appearance indicates the edit introduced a new divergence
+  somewhere — revert the offending edit and escalate.
+
+If any of these fail, the safety contract is broken. Revert the
+relevant edits (your editor's undo, `git restore`, or re-running
+the apply from a fresh state) and surface the failure to the
+developer before continuing.
+
+After verification passes:
 
 - Run `cargo check` (or `npm run check`, or the project's
-  equivalent) — the source edits are syntactic only; they shouldn't
-  affect typechecking, but a green build is reassurance.
-- Spot-check 1–2 representative selections against real backend
-  responses if a sandbox is available.
+  equivalent) to confirm the broader build is unaffected.
+- Spot-check one or two representative selections against real
+  backend responses if a sandbox is available.
 
 ### Step B5: archive the audit trail
 
