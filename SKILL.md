@@ -264,19 +264,19 @@ to run against a file whose version it doesn't recognize.
 # `connect/v0.3` → `connect/v0.4` migration recommendations
 
 2 section(s) need a decision (5 divergent token(s) across 2 `@connect`
-selection(s)). For each section, edit the **Proposed rewrite** block
-as needed and check the box that reflects your decision, then run:
+selection(s)). For each section, edit the rewrite block as needed and
+check the box that reflects your decision, then run:
 
     connect-migrate apply recommendations.md
 
 Each section has two decision options. **Exactly one must be checked.**
-The defaults reflect what the analyzer recommends; edit the Proposed
-rewrite block, flip the checkbox, or both.
+The defaults reflect what the analyzer recommends; edit the rewrite
+block, flip the checkbox, or both.
 
-- **apply the rewrite above** — apply uses the contents of the
-  Proposed rewrite block as the new selection.
 - **leave the source unchanged** — apply makes no change (accept the
   v0.4 literal reading).
+- **apply the rewrite below** — apply uses the contents of the rewrite
+  block as the new selection.
 
 ---
 
@@ -317,16 +317,14 @@ billTo: "bill-to"
 - `"bill-to"` contains characters not valid in a GraphQL identifier,
   so it is almost certainly a quoted field name from a REST response.
 
-**Proposed rewrite** (edit if needed):
+**Decide:**
+- [ ] leave the source unchanged
+- [x] apply the rewrite below
 
 ```graphql
 soldTo: $."sold-to"
 billTo: $."bill-to"
 ```
-
-**Decide:**
-- [x] apply the rewrite above
-- [ ] leave the source unchanged
 
 ---
 
@@ -349,15 +347,13 @@ status: null
   null value; v0.3 returned the same thing accidentally via response
   normalization.
 
-**Proposed rewrite** (edit if needed):
+**Decide:**
+- [x] leave the source unchanged
+- [ ] apply the rewrite below
 
 ```graphql
 status: null
 ```
-
-**Decide:**
-- [ ] apply the rewrite above
-- [x] leave the source unchanged
 ````````
 
 ### Per-site identity comments
@@ -381,32 +377,37 @@ bullets, prose) is free-form markdown.
 ### Decision checklist
 
 A section's `**Decide:**` block is the editable part. The two options
-appear as markdown checkboxes:
+appear as markdown checkboxes, in this order:
 
 ```markdown
 **Decide:**
-- [x] apply the rewrite above
 - [ ] leave the source unchanged
+- [x] apply the rewrite below
 ```
 
 `apply` matches by position: the first `- [x]` (or `- [X]`) line means
-"apply the rewrite," the second means "leave alone." Exactly one must
+"leave alone," the second means "apply the rewrite." Exactly one must
 be checked.
 
-### Proposed rewrite block
+### Rewrite block
 
-Each section has a fenced ```graphql block above the checklist
-labelled `**Proposed rewrite** (edit if needed):`. Its contents are
-the literal text that `apply` writes when `apply the rewrite above`
-is checked. The analyzer pre-fills the block with `$.` fortifications
-applied to every token the heuristic classified `keep-v0.3`; tokens
-classified `embrace-v0.4` stay as-is.
+Each section has a fenced ```graphql block immediately below the
+checklist. Its contents are the literal text that `apply` writes when
+`apply the rewrite below` is checked. The analyzer pre-fills the block
+with `$.` fortifications applied to every token the heuristic
+classified `keep-v0.3`; tokens classified `embrace-v0.4` stay as-is.
+
+Byte-level structure around each token (commas, whitespace,
+indentation, other tokens) is preserved verbatim from the source —
+the analyzer only replaces the divergent token's byte range. JSON
+copy/paste users keep their commas; SubSelection-style users keep
+their lack thereof.
 
 To customize a rewrite, the developer edits the block. To revert any
 specific fortification, they delete the `$.` prefix on that line. To
-accept a stricter interpretation than the analyzer suggested, they
-flip the checkbox (or edit the block to do nothing — same effect, but
-the checkbox is clearer).
+accept the analyzer's recommendation as-is, they leave the block
+alone; flipping the checkbox without editing the block also works
+(`leave the source unchanged` makes apply ignore the block entirely).
 
 ### Status field (added by apply)
 
