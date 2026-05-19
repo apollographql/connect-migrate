@@ -75,21 +75,22 @@ From the project root (the directory containing the developer's
 subgraph schemas, supergraph config, or composed supergraph SDL):
 
 ```sh
-connect-migrate analyze . --output recommendations.md
+connect-migrate analyze . > recommendations.md
 ```
 
 `connect-migrate analyze` walks `.graphql` files, finds every
 `@connect(selection: …)` directive, dual-parses each selection under
-v0.3 and v0.4 grammars, and writes the differing sites to
-`recommendations.md`. Sites that parse identically under both grammars
-are **not** written to the file — they need no migration.
+v0.3 and v0.4 grammars, and writes the differing sites to stdout in
+the recommendations format. Sites that parse identically under both
+grammars are **not** emitted — they need no migration.
 
-If the project also has a `connect-migrate.toml` or a custom layout,
-pass paths explicitly:
+Pipe to whatever sink fits — a file (above), `less`, a clipboard
+utility — or pass `-o`/`--output` to have analyze write the file
+itself:
 
 ```sh
 connect-migrate analyze subgraphs/billing subgraphs/orders \
-  --output recommendations.md
+  -o recommendations.md
 ```
 
 ### Step A2: triage each site (you are the analyzer here)
