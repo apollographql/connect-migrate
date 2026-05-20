@@ -27,7 +27,7 @@ env:
   # to the router branch can't quietly change what `vX.Y.Z` builds
   # from. Bump as the connect-migrate tool catches up with
   # apollo-federation changes.
-  RELEASE_ROUTER_REF: '076227605'
+  RELEASE_ROUTER_REF: '218a10703'
 
 jobs:
   build:
