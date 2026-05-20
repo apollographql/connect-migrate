@@ -188,24 +188,42 @@ shaped the way it is.
 See the [Recommendations format](#recommendations-format) section
 below for the spec and a worked example.
 
-### Step A4: hand off
+### Step A4: read the result kind, then hand off
 
-Tell the developer the file is ready and what they should look for.
+Open `recommendations.md` and read the `<!-- result: … -->` marker
+at the top of the file. That single token determines what you say to
+the developer and whether Mode B applies. See [Result kinds](#result-kinds)
+for the full prescription; the short form per kind:
 
-> Suggested prompt:
->
-> > I've written `recommendations.md` with N section(s) covering K
-> > divergent `@connect` token(s). Each section has a checklist with
-> > two options and a rewrite block pre-filled with my recommendation.
-> > Review each section: flip the checkbox if you want to leave the
-> > source unchanged instead, edit the rewrite block if you want a
-> > different replacement, or both. When you're ready, tell me and
-> > I'll apply the changes to your source files (per Mode B in this
-> > skill) and re-run `connect-migrate analyze` to verify.
+- **`empty-scan`** — no `.graphql` files matched the path. Report
+  what you scanned and ask the developer for a different path. Do
+  not enter Mode B.
+- **`nothing-to-migrate`** — files scanned, but no `@connect`
+  directives present. Report this and ask whether to look elsewhere.
+  Do not enter Mode B.
+- **`safe-to-upgrade`** — directives present, zero divergent
+  selections. State the verdict plainly (the file's own preamble
+  is suitable to quote) and point the developer at the
+  ready-to-paste `@link` snippet in the file. Do not enter Mode B.
+- **`needs-decisions`** — hand the file over for review:
 
-Do not start editing source files automatically. The whole point of
-the two-step flow is that the developer reviews `recommendations.md`
-before any source change.
+  > Suggested prompt:
+  >
+  > > I've written `recommendations.md` with N section(s) covering K
+  > > divergent `@connect` token(s). Each section has a checklist with
+  > > two options and a rewrite block pre-filled with my recommendation.
+  > > Review each section: flip the checkbox if you want to leave the
+  > > source unchanged instead, edit the rewrite block if you want a
+  > > different replacement, or both. When you're ready, tell me and
+  > > I'll apply the changes to your source files (per Mode B in this
+  > > skill) and re-run `connect-migrate analyze` to verify.
+
+  Then wait for the developer's review before entering Mode B.
+
+Do not start editing source files automatically — not even the
+`@link` URL bump in the `safe-to-upgrade` case. The two-step flow
+exists so that source changes only happen after the developer has
+read the analyzer's verdict and asked for them.
 
 ---
 
@@ -379,20 +397,43 @@ developer to remember.
 
 ## Recommendations format
 
-`connect-migrate analyze` writes a single markdown file with one
-section per `@connect(selection: …)` directive that contains at least
-one divergent token. The format is versioned via the leading
+`connect-migrate analyze` writes a single markdown file. Its shape
+depends on what the analyzer found — see [Result kinds](#result-kinds)
+below for the four cases. When divergent selections exist, the file
+contains one section per `@connect(selection: …)` directive that
+needs a decision. The format is versioned via the leading
 `<!-- connect-migrate recommendations v1 -->` comment; future tool
 versions may extend it, but consumers (you, when in Mode B) should
 refuse to act on a file whose version they don't recognize.
+
+The metadata block at the top is machine-readable. Read these
+comments before parsing prose:
+
+- **`<!-- result: empty-scan | nothing-to-migrate | safe-to-upgrade | needs-decisions -->`**
+  — the analyzer's verdict in one token. Always present. Determines
+  what you say to the developer and whether Mode B applies; see
+  [Result kinds](#result-kinds).
+- **`<!-- files-scanned: N -->`** — count of `.graphql` files
+  actually visited during the walk.
+- **`<!-- directives-analyzed: D -->`** — count of `@connect`
+  directives whose `selection` parsed cleanly under both v0.3 and
+  v0.4. This is the denominator for "every selection parses
+  identically."
+- **`<!-- divergent-sites: K -->`** — count of divergent tokens
+  reported below. Zero when `result` is anything other than
+  `needs-decisions`.
 
 ### Document structure (worked example)
 
 ````````markdown
 <!-- connect-migrate recommendations v1 -->
+<!-- result: needs-decisions -->
 <!-- generator: connect-migrate 0.X.Y -->
 <!-- generated-at: 2026-05-19T14:28:18Z -->
 <!-- project-root: . -->
+<!-- files-scanned: 3 -->
+<!-- directives-analyzed: 12 -->
+<!-- divergent-sites: 5 -->
 
 # `connect/v0.3` → `connect/v0.4` migration recommendations
 
@@ -570,30 +611,57 @@ These come up rarely but are worth knowing:
   targets — they were already broken — but they're worth surfacing so
   the developer can fix them.
 
+## Result kinds
+
+Every `recommendations.md` carries a single `<!-- result: … -->`
+marker in its metadata block. The marker is the analyzer's verdict
+in one token; switch on it before reading prose.
+
+- **`empty-scan`** — the walk visited zero `.graphql` files.
+  `files-scanned: 0`. Almost always a path-argument mistake. Tell
+  the developer exactly which path you passed and ask for a
+  different one. Do not enter Mode B.
+
+- **`nothing-to-migrate`** — files were scanned but contain no
+  `@connect` directives. `files-scanned: > 0`, `directives-analyzed: 0`.
+  Either the project does not use Apollo Connectors or its connector
+  schemas live elsewhere. Report this plainly and ask whether to
+  look in a different directory. Do not enter Mode B.
+
+- **`safe-to-upgrade`** — `@connect` directives are present and
+  every one of their selections parses identically under
+  `connect/v0.3` and `connect/v0.4`. `directives-analyzed: > 0`,
+  `divergent-sites: 0`. This is a **trustworthy positive verdict
+  from the analyzer, not the absence of one** — the question your
+  developer is asking ("is upgrading to v0.4 safe?") has a clear
+  yes, with no source changes required. State the verdict plainly
+  (the file's own preamble reads naturally; you can quote it) and
+  point the developer at the ready-to-paste `@link` snippet under
+  the verdict. Do not enter Mode B; the `@link` URL change is the
+  developer's to make.
+
+- **`needs-decisions`** — at least one divergent selection needs a
+  developer decision. `divergent-sites: > 0`. This is the per-section
+  review flow described above in Mode A / Mode B. Hand the file over
+  per Step A4 and wait for the developer's review.
+
+Partial prior migrations land naturally in `needs-decisions` (or
+`safe-to-upgrade` if the developer finished). A schema that already
+declares `@link(url: "…connect/v0.4")` is no different — analyze
+dual-parses every selection regardless of the linked version, and
+its verdict is the same one a fresh v0.3 schema would get.
+
 ## Failure modes
 
-The migration should run cleanly when the developer's schemas were
-well-formed before starting. The expected exceptions:
+These are the exceptional cases that prevent the analyzer from
+running cleanly, or that require attention before continuing past
+its verdict:
 
 - **`connect-migrate` is not installed.** Run the install command
   from the [Prerequisite](#prerequisite-install-connect-migrate)
   section, then retry. If `install.sh` exits with an
   unsupported-platform error, surface its message verbatim and
   stop. Do not attempt to build the binary from source unattended.
-- **No `@connect` directives found in any scanned file.** Analyze
-  emits an empty recommendations file. Tell the developer exactly
-  which directory you scanned and ask whether there is a different
-  one to try (or whether the project has already been fully
-  migrated, in which case this is the expected outcome).
-- **Schema is already linked to `connect/v0.4`.** Analyze still
-  runs; it dual-parses every selection regardless of the `@link`
-  version. Any output identifies residual divergence the developer
-  missed in a prior pass. Treat this as a verification run and
-  continue with Mode A / B as usual.
-- **Partial prior migration.** Some directives were migrated
-  earlier, others were not. Analyze's output naturally reflects the
-  remaining divergent sites; treat the smaller count as
-  resumed-from-checkpoint work, not as an error.
 - **Pre-existing parse errors.** Analyze surfaces these at the top
   of `recommendations.md` under a "could not parse" heading. Show
   them to the developer for awareness; they predate the migration
