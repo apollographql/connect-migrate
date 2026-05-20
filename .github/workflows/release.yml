@@ -22,12 +22,14 @@ on:
         default: 'benjamn/connect-migrate-analyze'
 
 env:
-  # Router commit used by tag-triggered release builds. Pin to a SHA
-  # (not a branch) so a tagged release is immutable — future pushes
-  # to the router branch can't quietly change what `vX.Y.Z` builds
-  # from. Bump as the connect-migrate tool catches up with
-  # apollo-federation changes.
-  RELEASE_ROUTER_REF: '218a10703'
+  # Router commit used by tag-triggered release builds. Pin to a full
+  # 40-character SHA (not a branch, not an abbreviated SHA) so a
+  # tagged release is immutable and `actions/checkout@v4` resolves
+  # the ref correctly — checkout treats a short SHA as a branch
+  # pattern and silently fails to find it (see v0.0.2's failed build
+  # for the worked example). Bump as the connect-migrate tool catches
+  # up with apollo-federation changes.
+  RELEASE_ROUTER_REF: '218a107032a5326cc8aa764ac56c1169bbb137ec'
 
 jobs:
   build:
