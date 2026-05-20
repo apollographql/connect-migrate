@@ -38,9 +38,9 @@ This skill is designed for a two-step flow:
    `recommendations.md` file with one entry per site that needs a
    decision. The developer (or a second agent) edits the file to
    confirm or override each recommendation.
-2. **Apply** the edited file: read each `Decision:`, perform the
-   chosen source edits, then re-verify that no unintended divergence
-   remains.
+2. **Apply** the edited file: read each `**Decide:**` checklist,
+   perform the chosen source edits, then re-verify that no unintended
+   divergence remains.
 
 Either step can be driven by a human directly, but the two-step shape
 exists so that you (the agent) and the developer collaborate at the
@@ -69,10 +69,31 @@ binary manually).
 Use this mode when no `recommendations.md` exists yet (or the developer
 explicitly asks for a fresh analysis).
 
-### Step A1: run the analyzer
+### Step A1: confirm scope and run the analyzer
 
-From the project root (the directory containing the developer's
-subgraph schemas, supergraph config, or composed supergraph SDL):
+Open the conversation by asking the developer where to look. The
+analyzer needs a project root that contains `.graphql` schema files —
+typically the repository root, or a `subgraphs/` subdirectory.
+
+> Suggested prompt:
+>
+> > Where should I look for your connector schemas? A directory path
+> > relative to the project root is enough; if you're not sure, the
+> > repository root is usually the right answer.
+
+Once you have a path, confirm `connect-migrate` is available:
+
+```sh
+connect-migrate --version
+```
+
+If that errors with "command not found," install it per the
+[Prerequisite](#prerequisite-install-connect-migrate) section above,
+then re-run `--version` to confirm. If `install.sh` fails (e.g. no
+binary published for the developer's platform), surface its error
+verbatim and stop — do not attempt to build from source unattended.
+
+Then, from the project root the developer pointed you at:
 
 ```sh
 connect-migrate analyze . > recommendations.md
@@ -169,16 +190,18 @@ below for the spec and a worked example.
 
 ### Step A4: hand off
 
-Tell the developer the file is ready and what they should look for:
+Tell the developer the file is ready and what they should look for.
 
-> I've written `recommendations.md` with N sections covering K
-> divergent `@connect` tokens. Each section has a checklist with two
-> options and a rewrite block pre-filled with my recommendation.
-> Review each section: flip the checkbox if you want to leave the
-> source unchanged instead, edit the rewrite block if you want a
-> different replacement, or both. When you're ready, tell me and
-> I'll apply the changes to your source files (per Mode B in this
-> skill) and re-run `connect-migrate analyze` to verify.
+> Suggested prompt:
+>
+> > I've written `recommendations.md` with N section(s) covering K
+> > divergent `@connect` token(s). Each section has a checklist with
+> > two options and a rewrite block pre-filled with my recommendation.
+> > Review each section: flip the checkbox if you want to leave the
+> > source unchanged instead, edit the rewrite block if you want a
+> > different replacement, or both. When you're ready, tell me and
+> > I'll apply the changes to your source files (per Mode B in this
+> > skill) and re-run `connect-migrate analyze` to verify.
 
 Do not start editing source files automatically. The whole point of
 the two-step flow is that the developer reviews `recommendations.md`
@@ -263,6 +286,15 @@ For each section the developer marked `apply the rewrite below`:
    `git diff` after a dry run, depending on environment). Get
    explicit go-ahead before writing.
 
+> Suggested prompt:
+>
+> > I'm ready to apply N section(s) across K file(s). Here's the
+> > combined diff:
+> >
+> > [show diff]
+> >
+> > Proceed?
+
 ### Step B3: write the edits
 
 For each section the developer approved:
@@ -325,6 +357,23 @@ source edits, with a commit message like:
 
     Driven by `connect-migrate analyze`; per-decision audit log
     preserved at recommendations.md.
+
+### Step B6: summarize for the developer
+
+Once verification passes, report back with a single short summary so
+the developer can confirm the run matched their intent:
+
+> Suggested prompt:
+>
+> > Migration complete. K section(s) rewritten; L section(s) left
+> > unchanged. Post-apply `connect-migrate analyze` reports zero
+> > unintended divergence. The audit log is preserved at
+> > `recommendations.md`. Ready to commit?
+
+If a follow-up step is appropriate (run the project's tests, deploy
+a canary, check a staging environment against real backend
+responses), name it explicitly rather than leaving it to the
+developer to remember.
 
 ---
 
@@ -520,6 +569,41 @@ These come up rarely but are worth knowing:
   the file under a "could not parse" heading. They're not migration
   targets — they were already broken — but they're worth surfacing so
   the developer can fix them.
+
+## Failure modes
+
+The migration should run cleanly when the developer's schemas were
+well-formed before starting. The expected exceptions:
+
+- **`connect-migrate` is not installed.** Run the install command
+  from the [Prerequisite](#prerequisite-install-connect-migrate)
+  section, then retry. If `install.sh` exits with an
+  unsupported-platform error, surface its message verbatim and
+  stop. Do not attempt to build the binary from source unattended.
+- **No `@connect` directives found in any scanned file.** Analyze
+  emits an empty recommendations file. Tell the developer exactly
+  which directory you scanned and ask whether there is a different
+  one to try (or whether the project has already been fully
+  migrated, in which case this is the expected outcome).
+- **Schema is already linked to `connect/v0.4`.** Analyze still
+  runs; it dual-parses every selection regardless of the `@link`
+  version. Any output identifies residual divergence the developer
+  missed in a prior pass. Treat this as a verification run and
+  continue with Mode A / B as usual.
+- **Partial prior migration.** Some directives were migrated
+  earlier, others were not. Analyze's output naturally reflects the
+  remaining divergent sites; treat the smaller count as
+  resumed-from-checkpoint work, not as an error.
+- **Pre-existing parse errors.** Analyze surfaces these at the top
+  of `recommendations.md` under a "could not parse" heading. Show
+  them to the developer for awareness; they predate the migration
+  and are out of scope for this flow. Do not attempt to repair
+  them.
+- **Source changed between analyze and apply.** Mode B Step B1
+  validates identity comments against the current source. If a
+  section's `id` no longer matches, regenerate `recommendations.md`
+  and restart Mode B from B1 rather than guess at the developer's
+  intent.
 
 ## Tone
 
