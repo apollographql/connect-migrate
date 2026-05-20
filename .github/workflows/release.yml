@@ -19,12 +19,15 @@ on:
       router_ref:
         description: 'apollographql/router ref (branch, tag, or commit) to build from'
         required: true
-        default: 'benjamn/connect-migrate-skeleton'
+        default: 'benjamn/connect-migrate-analyze'
 
 env:
-  # Router commit/branch used by tag-triggered release builds. Bump as
-  # the connect-migrate tool catches up with apollo-federation changes.
-  RELEASE_ROUTER_REF: 'benjamn/connect-migrate-skeleton'
+  # Router commit used by tag-triggered release builds. Pin to a SHA
+  # (not a branch) so a tagged release is immutable — future pushes
+  # to the router branch can't quietly change what `vX.Y.Z` builds
+  # from. Bump as the connect-migrate tool catches up with
+  # apollo-federation changes.
+  RELEASE_ROUTER_REF: '218a10703'
 
 jobs:
   build:
