@@ -147,6 +147,15 @@ restores a v0.3 field access that v0.4 would otherwise read as a literal
 — so you apply them without asking the developer to adjudicate. Show the
 diff; a single batched go-ahead before writing is good practice.
 
+**The `## Rewrites to apply` section is the authoritative work list.**
+Apply *exactly* the `site v2` blocks present there, using each block's
+`rewrite_to` verbatim — no more, no less. This is what makes the section
+editable: to **skip** a rewrite, delete its block; to **change** a
+replacement, edit its `rewrite_to`. Never recompute a fortification the
+developer removed or overrode, and never apply one that isn't listed. If
+the developer curates the list (in the file or by telling you), honor
+the curated list as-is.
+
 Each rewrite carries a machine block:
 
 ```
