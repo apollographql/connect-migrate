@@ -297,16 +297,25 @@ Read these comments before parsing prose:
 | `auto-fixes:` | Sites in *Rewrites to apply*. |
 | `no-ops:` | Sites in *No action needed*. |
 | `questions:` | Sites in *Questions for the developer*. The number that matters: zero means a clean bill of health. |
+| `upgrade:` | The source `connect/v0.n` version(s) found across the schemas → the target (`connect/v0.4`). |
+| `parse-notices:` | Selections that couldn't be diffed (see *Heads up* below). |
 
-### Title and scope
+### Title, upgrade, and scope
 
-Directly under the H1 title, a **Scope** line names the project root,
-the schema count, and the directive count, followed by a
-`Schemas considered:` list of every `.graphql` file the run actually
-walked. Read it first: it's how you (and the developer) confirm the run
-covered the schemas you expected and didn't silently miss a path. If an
-expected schema isn't listed, the path argument was wrong — re-run
-before trusting the verdict.
+Directly under the H1 title:
+
+- An **Upgrade** line names the source `connect/v0.n` version(s) detected
+  across the schemas and the target — e.g. `connect/v0.2 (7 schemas) ·
+  connect/v0.3 (5 schemas) → connect/v0.4`. The "from" version is read
+  per schema from its `@link(url: ".../connect/v0.n")`, and each
+  schema's selections are diffed at *its own* version against v0.4 — a
+  v0.2 schema is compared as v0.2, not assumed to be v0.3.
+- A **Scope** line names the project root, the schema count, and the
+  directive count, followed by a `Schemas considered:` list of every
+  `.graphql` file the run walked. Read it first: it's how you confirm
+  the run covered the schemas you expected. If an expected schema isn't
+  listed, the path argument was wrong — re-run before trusting the
+  verdict.
 
 ### Body: three buckets
 
@@ -320,6 +329,21 @@ before trusting the verdict.
   fork, and a windowed selection context. Empty unless `result` is
   `needs-decisions`.
 
+### Heads up — selections not analyzed
+
+A `## Heads up — selections not analyzed (N)` section appears only when
+some `@connect` selection failed to parse, so it couldn't be diffed.
+This is **non-fatal** — the rest of the manifest stands — but each entry
+needs a look:
+
+- *parses under the linked spec but not under `connect/v0.4`* — the
+  selection would break on upgrade; it must be fixed before migrating.
+- *parses under `connect/v0.4` but not under the linked spec* — it uses
+  syntax newer than the schema declares (a latent inconsistency).
+- *parses under neither* — a pre-existing syntax error, out of scope.
+
+Surface these to the developer; don't try to auto-fix them.
+
 ### `site v2` machine block
 
 One block per site (grouped sites carry `occurrences: N`):
@@ -331,6 +355,7 @@ One block per site (grouped sites carry `occurrences: N`):
 | `line`, `col` | 1-indexed start of the host `@connect` directive. **Authoritative locator.** |
 | `byte_offset` | Same location as a byte index. |
 | `coordinate` | `Type.field`. **Informational only** — not unique across files; never use as a locator. |
+| `from` | The `connect/v0.n` spec the host schema links — the "from" side of this site's upgrade. |
 | `kind` | `key_quoted_flipped_to_literal_string`, `key_flipped_to_literal_null`, `key_flipped_to_literal_bool`, `key_field_flipped_to_literal_string`, or a structural kind. |
 | `text` | The token's source text (JSON-escaped). |
 | `source_range` | Byte range `start..end` of the token *within the selection body*. |
@@ -345,7 +370,9 @@ One block per site (grouped sites carry `occurrences: N`):
 - **`empty-scan`** — zero `.graphql` files visited (`files-scanned: 0`).
   Almost always a path mistake. Report the path; ask for another. Stop.
 - **`nothing-to-migrate`** — files scanned, no `@connect` directives
-  (`directives-analyzed: 0`). Report; ask whether to look elsewhere. Stop.
+  parsed cleanly (`directives-analyzed: 0`). Usually means no connectors
+  here; but if a `## Heads up` section is present, there *were* `@connect`
+  directives that failed to parse — read those before concluding. Stop.
 - **`safe-to-upgrade`** — directives present, zero divergence
   (`divergent-sites: 0`). A trustworthy positive verdict, not the
   absence of one. State it; point at the `@link` snippet. Stop.
@@ -356,9 +383,10 @@ One block per site (grouped sites carry `occurrences: N`):
   (`questions: > 0`). Apply the rewrites, then interview the developer
   over the questions.
 
-A schema that already declares `@link(url: "…connect/v0.4")` is no
-different: `analyze` dual-parses every selection regardless of the
-linked version, and reaches the same verdict a fresh v0.3 schema would.
+Each schema is diffed at its **own** linked `connect/v0.n` version
+against the v0.4 target (see the `Upgrade` line), so a mixed-version
+project is handled correctly. A schema already on `connect/v0.4` shows
+zero divergence — it's at the target.
 
 ---
 
@@ -398,8 +426,15 @@ Why the analyzer sorts sites the way it does:
 - **`v03_only_accepts`** — should never appear after the parser fix.
   Treat as a `connect-migrate` bug and file an issue.
 - **Pre-existing syntax errors** — selections that parse under neither
-  grammar. Surface them to the developer for awareness; they predate the
-  migration and are out of scope. Do not repair them.
+  grammar. They appear in the `## Heads up` section; surface them for
+  awareness. They predate the migration and are out of scope. Do not
+  repair them.
+- **Non-selection spec changes** — this tool diffs `@connect(selection:)`
+  *mapping* only. Other version-to-version changes (e.g. the v0.2→v0.3
+  arrow-method shape / URI-validation change, or `@connect`/`@source`
+  argument changes) are **not** analyzed. For a multi-version jump
+  (v0.2 → v0.4), consult the connect spec changelog for anything beyond
+  selection mapping.
 
 ---
 
