@@ -1,0 +1,6 @@
+# Never commit answer-bearing or run-local artifacts to this repo (agents read it).
+expected/
+golden/
+work/
+results/
+*-manifest-*.md

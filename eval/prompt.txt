@@ -1,0 +1,1 @@
+Use https://github.com/apollographql/connect-migrate to migrate the .graphql schema files in this repository to connect/v0.4, following that project's migration skill.
