@@ -1,0 +1,46 @@
+name: eval tests
+
+# Runs the deterministic analyzer golden tests (eval/tests/) against the
+# released connect-migrate binary. Snapshots normalize the volatile
+# generated-at/generator lines, so a version bump alone won't fail — only an
+# actual change in analyzer output will (the intended regression signal).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'eval/**'
+      - '.github/workflows/eval-tests.yml'
+  pull_request:
+    paths:
+      - 'eval/**'
+      - '.github/workflows/eval-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyzer-golden:
+    name: analyzer golden tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install connect-migrate
+        env:
+          # Same-repo release download; contents:read is sufficient.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ./install.sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Show version
+        run: connect-migrate --version
+
+      - name: Run analyzer golden tests
+        run: make -C eval test
