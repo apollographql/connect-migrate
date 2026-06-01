@@ -2,9 +2,9 @@
 
 CLI + agent skill for upgrading [Apollo Connectors](https://www.apollographql.com/docs/graphos/connectors) schemas across `connect/v0.X` spec versions.
 
-The current focus is **v0.3 → v0.4** — the [SubSelection/LitObject grammar unification](https://github.com/apollographql/router/pull/9261) introduced in `connect/v0.4`. A small but important class of `@connect(selection: …)` expressions changes meaning between the two specs; `connect-migrate` finds those sites in your project, classifies them by intent, and applies the chosen transformations.
+The current target is **`connect/v0.4`** — the [SubSelection/LitObject grammar unification](https://github.com/apollographql/router/pull/9261) introduced there changes how a small but important class of `@connect(selection: …)` expressions parses. `connect-migrate analyze` reads each schema's linked `connect/v0.n` version, finds the selections that change meaning relative to v0.4, and emits a **manifest** that an agent applies and (where genuinely ambiguous) interviews the developer about.
 
-> **Status:** preview. v0.0.1 ships the agent guide and the binary skeleton; the `analyze`/`apply` subcommands land in subsequent releases.
+> **Status:** preview, Apollo-internal. `analyze` and `agent-guide` ship today; the migration is driven by an agent following [`SKILL.md`](SKILL.md) — there is no `apply` subcommand by design (see below). Latest release: see the [Releases page](https://github.com/apollographql/connect-migrate/releases).
 
 ## Install
 
@@ -29,41 +29,45 @@ gh release download -R apollographql/connect-migrate --pattern 'connect-migrate-
 ### Verify
 
 ```sh
-connect-migrate --version       # connect-migrate 0.0.1
+connect-migrate --version       # e.g. connect-migrate 0.0.4
 connect-migrate agent-guide     # prints the embedded migration guide
 ```
 
 ## How it works
 
-The migration flow is driven by an agent following [`SKILL.md`](SKILL.md). The agent calls the `connect-migrate` binary for the heavy lifting (dual-parsing every selection under v0.3 and v0.4 grammars) and applies the developer-approved source edits using its own file-editing primitives. There is no `apply` subcommand — source rewriting is the agent's job, against the structured `recommendations.md` the analyzer produces.
+The migration is driven by an agent following [`SKILL.md`](SKILL.md). The binary does the analysis; the agent does the editing and the conversation. There is **no `apply` subcommand** — the manifest *is* the interface, and the agent applies edits in-session so the developer's flow is never broken.
 
 `connect-migrate` exposes two subcommands:
 
-- **`connect-migrate analyze [PATH]...`** — walks the given paths (default `.`), finds every `@connect(selection: ...)` directive, dual-parses each, and writes a `recommendations.md` to stdout summarizing every section that needs a decision before upgrading. Pipe to a file (`> recommendations.md`) or pass `-o`/`--output`.
-- **`connect-migrate agent-guide`** — prints the migration skill prose embedded in the binary. Pipe into your agent of choice, or read it manually.
+- **`connect-migrate analyze [PATH]...`** — walks the given paths (default `.`), finds every `@connect(selection: …)` directive, and for each schema dual-parses every selection at *its own* linked `connect/v0.n` against the `connect/v0.4` target. Writes a **manifest** to stdout (pipe to a file, or pass `-o`/`--output`; `--format json` emits one JSONL record per site). The manifest sorts each divergent site into three buckets:
+  - **Rewrites to apply** — deterministic `$.` fortifications that preserve a v0.3-era field access v0.4 would otherwise read as a literal. Each carries a machine block with an exact locator and replacement.
+  - **No action needed** — bare `null`/`true`/`false` whose v0.4 reading is output-identical.
+  - **Questions for the developer** — only the genuinely ambiguous, structural divergences.
+  It also reports an `Upgrade` line (source versions → v0.4), the schemas in scope, a non-fatal "Heads up" section for selections that fail to parse, and the ready-to-paste `connect/v0.4` `@link`.
+- **`connect-migrate agent-guide`** — prints the migration skill prose embedded in the binary (byte-identical to [`SKILL.md`](SKILL.md)). Pipe into your agent of choice, or read it manually.
 
 ## Agent skill
 
-[`SKILL.md`](SKILL.md) is the canonical text an agent (Claude Code, Cursor, Cline, or any other) follows when assisting with the migration. It describes a two-mode flow:
+[`SKILL.md`](SKILL.md) is the canonical text an agent (Claude Code, Cursor, Cline, or any other) follows. The flow:
 
-- **Mode A — Analyze.** The agent runs `connect-migrate analyze`, writes `recommendations.md`, and hands it to the developer for review.
-- **Mode B — Apply.** The developer edits `recommendations.md` (flip checkboxes, edit rewrite blocks). The agent reads it back and uses its file-editing tools to rewrite the developer's `.graphql` source files accordingly, then re-runs analyze to verify zero unintended divergence remains.
+1. **Analyze** — run `connect-migrate analyze` to produce the manifest.
+2. **Apply rewrites** — apply the deterministic fortifications from the manifest's machine blocks (curate the list first if needed: delete a block to skip it, edit `rewrite_to` to change it).
+3. **Interview** — put only the genuine questions to the developer, distilled (one question per distinct decision, not per site), and apply their answers.
+4. **Verify** — re-run `analyze` and confirm a clean verdict, then bump each schema's `@link` to `connect/v0.4`.
 
-The same prose is embedded in the binary as `connect-migrate agent-guide` for offline use.
+You can also **resume from an existing (possibly curated) manifest** — hand it back and the agent applies what it lists, without re-analyzing. The same prose is embedded in the binary as `connect-migrate agent-guide` for offline use.
 
 ## Layered design
 
 Three layers, increasing in agent integration:
 
 1. **Binary on `$PATH`** — universal; works for any agent that can shell out.
-2. **`SKILL.md`** *(top of this repo)* — the per-site triage rules in plain markdown. Drop into Claude Code, Cursor, Cline, or any agent that consumes skill prose.
+2. **`SKILL.md`** *(top of this repo)* — the manifest format + migration flow in plain markdown. Drop into Claude Code, Cursor, Cline, or any agent that consumes skill prose.
 3. **Claude Code plugin** *(planned)* — `/plugin install apollographql/connect-migrate` registers the skill + the binary.
 
 ## Source of truth
 
-The Rust crate is upstream in [`apollographql/router`](https://github.com/apollographql/router) at `apollo-federation/src/connectors/migration/`. This repo handles cross-platform release builds (`.github/workflows/release.yml`) pinning a known-good router commit.
-
-See [router commit `47c83ecf0`](https://github.com/apollographql/router/tree/47c83ecf0/apollo-federation/src/connectors/migration) for the current skeleton.
+The Rust crate is upstream in [`apollographql/router`](https://github.com/apollographql/router) at `apollo-federation/src/connectors/migration/`, behind the `connect-migrate` cargo feature. This repo handles cross-platform release builds (`.github/workflows/release.yml`), which check out a pinned router commit via `RELEASE_ROUTER_REF` — so a release ships from a specific router commit without that commit needing to be merged into router first.
 
 ## License
 
