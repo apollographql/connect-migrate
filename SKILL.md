@@ -58,9 +58,19 @@ edit:
 4. **Verify** by re-running `analyze` and confirming the divergence is
    resolved.
 
-`connect-migrate` has no `apply` subcommand by design: the edits happen
-inside your session, alongside the conversation, so you never break the
-developer's flow by bouncing them through a separate tool.
+`connect-migrate` has no `apply` subcommand by design: the manifest *is*
+the interface, and you are the executor. The edits happen inside your
+session, alongside the conversation, so you never break the developer's
+flow by bouncing them through a separate tool.
+
+**Two entry points.** Either:
+
+- **Fresh** — no manifest yet: start at Step 1 (analyze).
+- **Resume** — you've been handed an existing manifest (often one the
+  developer curated — see [Step 3](#step-3-apply-the-rewrites)): skip
+  analysis and start at Step 3, applying exactly what the manifest now
+  lists. Re-run `analyze` only if you suspect the source changed since
+  the manifest was written (Step 3's `id` check catches that).
 
 ---
 
@@ -80,6 +90,8 @@ binary manually).
 ---
 
 ## Step 1: confirm scope and run the analyzer
+
+*(Resuming from an existing manifest? Skip to [Step 3](#step-3-apply-the-rewrites).)*
 
 Open by asking the developer where to look. The analyzer needs a project
 root containing `.graphql` schema files — typically the repository root
@@ -155,6 +167,12 @@ replacement, edit its `rewrite_to`. Never recompute a fortification the
 developer removed or overrode, and never apply one that isn't listed. If
 the developer curates the list (in the file or by telling you), honor
 the curated list as-is.
+
+**Resuming from a handed-in manifest?** Before applying, confirm it's
+still current: each block's `id` should still match a directive in the
+source at its `file`/`line`. If an `id` no longer resolves, the source
+changed since the manifest was written — re-run `analyze` (Step 1) and
+re-collect any decisions rather than applying a stale block.
 
 Each rewrite carries a machine block:
 
