@@ -346,6 +346,10 @@ Directly under the H1 title:
   ambiguity, each with a machine block, a one-line statement of the
   fork, and a windowed selection context. Empty unless `result` is
   `needs-decisions`.
+- **`## After applying — switch to connect/v0.4`** — the closing
+  section, with the ready-to-paste `@link(.../connect/v0.4)` line each
+  migrated schema should adopt once its rewrites (and any questions) are
+  done. Point the developer here so they know the target to update to.
 
 ### Heads up — selections not analyzed
 
