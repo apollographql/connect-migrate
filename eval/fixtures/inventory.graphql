@@ -1,0 +1,16 @@
+extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.9", import: ["@key"])
+  @link(url: "https://specs.apollo.dev/connect/v0.2", import: ["@connect", "@source"])
+  @source(name: "inventory", http: { baseURL: "https://example.test/inventory" })
+
+type Query {
+  stock(sku: ID!): Stock
+    @connect(source: "inventory", http: { GET: "/stock/{$args.sku}" }, selection: "sku quantity backordered: false location: \"warehouse.id\"")
+}
+
+type Stock @key(fields: "sku") {
+  sku: ID!
+  quantity: Int
+  backordered: Boolean
+  location: String
+}

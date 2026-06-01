@@ -1,0 +1,25 @@
+extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.10", import: ["@key"])
+  @link(url: "https://specs.apollo.dev/connect/v0.3", import: ["@connect", "@source"])
+  @source(name: "pricing", http: { baseURL: "https://example.test/pricing" })
+
+type Query {
+  price(id: ID!): Price
+    @connect(
+      source: "pricing"
+      http: { GET: "/price/{$args.id}" }
+      selection: """
+      id
+      amount
+      note: null
+      tier: "tier-code"
+      """
+    )
+}
+
+type Price @key(fields: "id") {
+  id: ID!
+  amount: Float
+  note: String
+  tier: String
+}
