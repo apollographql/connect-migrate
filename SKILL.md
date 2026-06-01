@@ -289,6 +289,16 @@ Read these comments before parsing prose:
 | `no-ops:` | Sites in *No action needed*. |
 | `questions:` | Sites in *Questions for the developer*. The number that matters: zero means a clean bill of health. |
 
+### Title and scope
+
+Directly under the H1 title, a **Scope** line names the project root,
+the schema count, and the directive count, followed by a
+`Schemas considered:` list of every `.graphql` file the run actually
+walked. Read it first: it's how you (and the developer) confirm the run
+covered the schemas you expected and didn't silently miss a path. If an
+expected schema isn't listed, the path argument was wrong — re-run
+before trusting the verdict.
+
 ### Body: three buckets
 
 - **`## Rewrites to apply`** — one `site v2` machine block per
