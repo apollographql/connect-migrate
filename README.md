@@ -6,17 +6,38 @@ The current target is **`connect/v0.4`** — the [SubSelection/LitObject grammar
 
 > **Status:** preview, Apollo-internal. `analyze` and `agent-guide` ship today; the migration is driven by an agent following [`SKILL.md`](SKILL.md) — there is no `apply` subcommand by design (see below). Latest release: see the [Releases page](https://github.com/apollographql/connect-migrate/releases).
 
+## Why `connect/v0.4` (and why migrate at all)
+
+`connect/v0.4` unifies what were two parallel constructs in the v0.3 mapping language — `SubSelection` field blocks (`{ … }`) and object literals — into a single grammar (`LitExpr`). That unification is worth a migration:
+
+- **JSON now pastes directly as JSONSelection.** Because object literals are first-class in v0.4, a plain JSON object *is* valid `@connect(selection:)` code — you can paste a sample API response straight in and shape it from there, instead of hand-translating JSON into the old mapping dialect. This is the single most useful day-to-day win, for humans and agents alike.
+- **One composable grammar instead of two.** Literals, objects, and field selections now nest and compose uniformly, with far fewer special-case parsing rules and surprises.
+- **Intent becomes explicit.** In v0.3 a bare `null`/`true` or a quoted `"USD"` parsed as a *field reference*; when that field didn't exist the result normalized to `null`, so a literal-looking value only "worked" by accident. v0.4 reads them as real literals — what most authors meant — and lets you write a deliberate field reference with `$.` when you actually want one.
+- **Room to grow.** The unified grammar is what makes newer expression features (object literals, nullish/none-coalescing `??` / `?!`, nested literal expressions) possible at all.
+
+**The migration risk is real but narrow and mechanical.** The only breaking change is that tokens which *were* field references in v0.3 (quoted keys, bare keywords) now read as literals. The behavior-preserving fix is a deterministic `$.` fortification — and finding and applying exactly those is what `connect-migrate` is for. A bounded, tool-assisted, behavior-preserving edit in exchange for a coherent, expressive mapping language is a good trade.
+
 ## Install
 
 ### Unix (macOS, Linux)
 
+**While this repo is private, the raw `curl …/install.sh | sh` one-liner 404s** — the script can't be fetched anonymously. Use an authenticated release download via the [GitHub CLI](https://cli.github.com/) (it reuses your existing `gh` login):
+
 ```sh
-curl -fsSL https://raw.githubusercontent.com/apollographql/connect-migrate/main/install.sh | sh
+gh release download -R apollographql/connect-migrate \
+  -p "*$(uname -s | tr 'A-Z' 'a-z')-$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/')*" \
+  --dir /tmp/cm && mkdir -p ~/.local/bin && chmod +x /tmp/cm/connect-migrate-* \
+  && mv /tmp/cm/connect-migrate-* ~/.local/bin/connect-migrate
 ```
 
-By default this drops `connect-migrate` in `~/.local/bin`. Override with `CONNECT_MIGRATE_INSTALL_DIR=…`. Override the version with `CONNECT_MIGRATE_VERSION=v0.0.N`.
+If you have a token, the piped installer also works (it honors `GH_TOKEN`/`GITHUB_TOKEN`, or falls back to `gh auth token`):
 
-While this repo is private, the script needs a GitHub token — it picks up `GH_TOKEN`/`GITHUB_TOKEN`, or falls back to `gh auth token` if the [GitHub CLI](https://cli.github.com/) is installed and logged in.
+```sh
+curl -fsSL -H "Authorization: token $(gh auth token)" \
+  https://raw.githubusercontent.com/apollographql/connect-migrate/main/install.sh | sh
+```
+
+`install.sh` drops the binary in `~/.local/bin` by default (override with `CONNECT_MIGRATE_INSTALL_DIR=…`; pick a version with `CONNECT_MIGRATE_VERSION=v0.0.N`). Once the repo is public, the plain `curl …/install.sh | sh` works without a token.
 
 ### Windows
 
@@ -53,7 +74,7 @@ The migration is driven by an agent following [`SKILL.md`](SKILL.md). The binary
 1. **Analyze** — run `connect-migrate analyze` to produce the manifest.
 2. **Apply rewrites** — apply the deterministic fortifications from the manifest's machine blocks (curate the list first if needed: delete a block to skip it, edit `rewrite_to` to change it).
 3. **Interview** — put only the genuine questions to the developer, distilled (one question per distinct decision, not per site), and apply their answers.
-4. **Verify** — re-run `analyze` and confirm a clean verdict, then bump each schema's `@link` to `connect/v0.4`.
+4. **Verify, then bump** — re-run `analyze` **while still on the old `connect/v0.n`** to confirm zero divergent sites (that's the check that proves the fortifications took), and *only then* bump each schema's `@link` to `connect/v0.4` as the last step. A post-bump re-analyze is hollow — once a schema is on v0.4 the tool has nothing left to diff and reports clean regardless.
 
 You can also **resume from an existing (possibly curated) manifest** — hand it back and the agent applies what it lists, without re-analyzing. The same prose is embedded in the binary as `connect-migrate agent-guide` for offline use.
 
@@ -64,6 +85,12 @@ Three layers, increasing in agent integration:
 1. **Binary on `$PATH`** — universal; works for any agent that can shell out.
 2. **`SKILL.md`** *(top of this repo)* — the manifest format + migration flow in plain markdown. Drop into Claude Code, Cursor, Cline, or any agent that consumes skill prose.
 3. **Claude Code plugin** *(planned)* — `/plugin install apollographql/connect-migrate` registers the skill + the binary.
+
+## Why a native binary (not a script)
+
+`connect-migrate` doesn't *approximate* the migration — it runs the **actual Apollo Connectors parser**, compiled in. `analyze` dual-parses every `@connect(selection: …)` with the genuine `JSONSelection` grammar at both the schema's linked version and `connect/v0.4`, then diffs the two ASTs. A hand-rolled regex or JS reimplementation couldn't reproduce that grammar faithfully, and a subtly-wrong copy would defeat the whole point: the no-surprises, behavior-preserving contract depends on the analysis being *exactly* what the router does at composition time.
+
+That parser is Rust (the `apollo-federation` crate), so the tool ships as a small, self-contained native binary per platform — no Node or Python runtime to install, fast, and bit-for-bit the same code path the router uses. Hence the five-platform release matrix (`darwin-arm64/x64`, `linux-arm64/x64`, `win32-x64`) with `SHA256SUMS`, rather than `npm install` or a shell script.
 
 ## Source of truth
 
