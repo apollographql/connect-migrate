@@ -29,7 +29,7 @@ env:
   # pattern and silently fails to find it (see v0.0.2's failed build
   # for the worked example). Bump as the connect-migrate tool catches
   # up with apollo-federation changes.
-  RELEASE_ROUTER_REF: '218a107032a5326cc8aa764ac56c1169bbb137ec'
+  RELEASE_ROUTER_REF: 'a2b31756b641924120177de978d389ac025e1219'
 
 jobs:
   build:
