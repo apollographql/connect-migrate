@@ -5,47 +5,72 @@ supergraph from `@link(url: "https://specs.apollo.dev/connect/v0.3")`
 to `connect/v0.4`. The [SubSelection/LitObject grammar
 unification](https://github.com/apollographql/router/pull/9261) in v0.4
 changes how a small but important class of `@connect(selection: …)`
-expressions parse. The numbers across a 7,375-supergraph customer
-corpus:
+expressions parse. Across a 7,375-supergraph customer corpus:
 
 - 97.4% of `@connect(selection: …)` strings parse identically in v0.3
   and v0.4 — no migration needed.
 - 2.1% have at least one site where the v0.4 reading differs from v0.3.
-- The large majority of those differing sites (~77%) are
-  **placeholder-literal patterns** (`field: null`, `field: true`,
-  `field: "USD"`) where the v0.4 reading is almost certainly what the
-  developer originally meant. In v0.3 the parser tried to look up a
-  *field* named `null` / `true` / `"USD"` in the upstream response,
-  didn't find it, and returned `None` — which GraphQL's response
-  normalization then surfaced as `null`. The intent (a literal value)
-  matched the observed output (a null) by accident. v0.4 makes that
-  intent explicit and reliable. Upgrading is the fix.
-- A meaningful minority (~22%) are **quoted field-name references**
-  for REST APIs whose field names aren't valid GraphQL identifiers
-  (`gqlSafeAlias: "@odata.nextLink"`, `score: "@search.score"`,
-  `id: "@id"`). These need a small source change to preserve their v0.3
-  meaning under v0.4.
 
-A blind migration script can preserve v0.3 behavior everywhere, but
-doing so would forfeit the placeholder-literal wins. The job of this
-skill is to walk the affected sites with the developer (or have an
-agent walk them on the developer's behalf), making the *intent* call
-per site.
+Almost every divergent site falls into one of two mechanical
+categories, and the analyzer resolves both **without asking the
+developer anything**:
 
-This skill is designed for a two-step flow:
+- **Bare `null` / `true` / `false`** in value position (`status: null`,
+  `success: true`). In v0.3 the parser looked up a *field* named
+  `null`/`true`/`false`, didn't find it, and returned `None`, which
+  response normalization surfaced as `null` — accidentally matching the
+  literal the developer meant. v0.4 reads it as a literal directly. The
+  observable output is the same, so this needs **no edit**.
+- **Quoted tokens** (`"@odata.nextLink"`, `"USD"`, `"0.00"`) and **bare
+  identifiers**. In v0.3 these were *field accesses* (`Key::Quoted` /
+  `Key::Field`); v0.4 silently rereads them as string literals. The
+  behavior-preserving fix is a deterministic `$.` fortification:
+  `"USD"` → `$."USD"`, `soldTo` → `$.soldTo`. The analyzer applies these
+  mechanically.
 
-1. **Analyze** the project, producing a single human-editable
-   `recommendations.md` file with one entry per site that needs a
-   decision. The developer (or a second agent) edits the file to
-   confirm or override each recommendation.
-2. **Apply** the edited file: read each `**Decide:**` checklist,
-   perform the chosen source edits, then re-verify that no unintended
-   divergence remains.
+This is the central design rule: **a quoted token had no string-literal
+meaning in v0.3, so treating it as a literal would silently change
+behavior — which a migration must never do on the developer's behalf.**
+We always preserve the v0.3 reading. If the developer genuinely wants a
+literal string, that is a deliberate edit they make later, not something
+the migration guesses at.
 
-Either step can be driven by a human directly, but the two-step shape
-exists so that you (the agent) and the developer collaborate at the
-single point where judgment is actually required: reviewing the
-decisions file.
+What remains after those two categories is a small residue of genuinely
+ambiguous, structural divergences the analyzer cannot resolve. Those —
+and only those — become **questions for the developer**. The whole point
+of this skill is to distill the work down to those questions: apply
+everything mechanical, then interview the developer about the few real
+forks, rather than making them ratify hundreds of non-decisions.
+
+## How this skill works
+
+This is a single agent-driven session, not a file you hand a human to
+edit:
+
+1. **Analyze** the project. `connect-migrate analyze` writes a
+   **manifest** sorting every divergent site into three buckets:
+   *Rewrites to apply* (deterministic), *No action needed* (no-op), and
+   *Questions for the developer* (genuine ambiguity).
+2. **Apply** the deterministic rewrites yourself, using the precise
+   locators in each machine block.
+3. **Interview** the developer over the questions — only the genuine
+   forks, distilled — and apply their answers.
+4. **Verify** by re-running `analyze` and confirming the divergence is
+   resolved.
+
+`connect-migrate` has no `apply` subcommand by design: the manifest *is*
+the interface, and you are the executor. The edits happen inside your
+session, alongside the conversation, so you never break the developer's
+flow by bouncing them through a separate tool.
+
+**Two entry points.** Either:
+
+- **Fresh** — no manifest yet: start at Step 1 (analyze).
+- **Resume** — you've been handed an existing manifest (often one the
+  developer curated — see [Step 3](#step-3-apply-the-rewrites)): skip
+  analysis and start at Step 3, applying exactly what the manifest now
+  lists. Re-run `analyze` only if you suspect the source changed since
+  the manifest was written (Step 3's `id` check catches that).
 
 ---
 
@@ -64,16 +89,13 @@ binary manually).
 
 ---
 
-## Mode A — Analyze: produce `recommendations.md`
+## Step 1: confirm scope and run the analyzer
 
-Use this mode when no `recommendations.md` exists yet (or the developer
-explicitly asks for a fresh analysis).
+*(Resuming from an existing manifest? Skip to [Step 3](#step-3-apply-the-rewrites).)*
 
-### Step A1: confirm scope and run the analyzer
-
-Open the conversation by asking the developer where to look. The
-analyzer needs a project root that contains `.graphql` schema files —
-typically the repository root, or a `subgraphs/` subdirectory.
+Open by asking the developer where to look. The analyzer needs a project
+root containing `.graphql` schema files — typically the repository root
+or a `subgraphs/` subdirectory.
 
 > Suggested prompt:
 >
@@ -81,616 +103,391 @@ typically the repository root, or a `subgraphs/` subdirectory.
 > > relative to the project root is enough; if you're not sure, the
 > > repository root is usually the right answer.
 
-Once you have a path, confirm `connect-migrate` is available:
+Confirm the CLI is available (`connect-migrate --version`); if it errors
+with "command not found," install it per the
+[Prerequisite](#prerequisite-install-connect-migrate) section, then
+retry. If `install.sh` fails (e.g. no binary for the developer's
+platform), surface its error verbatim and stop — do not build from
+source unattended.
+
+Then, from the project root, write a **timestamped** manifest so each
+run is its own durable artifact and never clobbers a prior one:
 
 ```sh
-connect-migrate --version
+connect-migrate analyze subgraphs > connect-migrate-manifest-$(date -u +%Y-%m-%dT%H-%M-%SZ).md
 ```
 
-If that errors with "command not found," install it per the
-[Prerequisite](#prerequisite-install-connect-migrate) section above,
-then re-run `--version` to confirm. If `install.sh` fails (e.g. no
-binary published for the developer's platform), surface its error
-verbatim and stop — do not attempt to build from source unattended.
-
-Then, from the project root the developer pointed you at:
-
-```sh
-connect-migrate analyze . > recommendations.md
-```
-
-`connect-migrate analyze` walks `.graphql` files, finds every
-`@connect(selection: …)` directive, dual-parses each selection under
-v0.3 and v0.4 grammars, and writes the differing sites to stdout in
-the recommendations format. Sites that parse identically under both
-grammars are **not** emitted — they need no migration.
-
-Pipe to whatever sink fits — a file (above), `less`, a clipboard
-utility — or pass `-o`/`--output` to have analyze write the file
-itself:
-
-```sh
-connect-migrate analyze subgraphs/billing subgraphs/orders \
-  -o recommendations.md
-```
-
-### Step A2: triage each token (you are the analyzer here)
-
-For every divergent token within a section, the analyzer classifies it
-into one of two buckets. The classification drives **two** things:
-
-1. Whether the token's text gets a `$.` prefix in the section's
-   pre-filled Proposed rewrite block.
-2. The default state of the section-level checklist — `apply the
-   rewrite above` is pre-checked iff at least one token in the
-   section was classified `keep-v0.3`.
-
-The developer can override either default. The triage rules:
-
-#### Keep-v0.3 — Almost certainly a field reference
-
-The v0.3 reading was intentional and the v0.4 literal reading is
-wrong. The token gets `$.` prepended in the rewrite block. Heuristics:
-
-- Quoted string with characters that aren't valid in a GraphQL bare
-  identifier (`@`, `:`, `/`, `-`, `.`, spaces). Real examples from the
-  corpus: `"@odata.nextLink"`, `"@odata.count"`, `"@type"`, `"@id"`,
-  `"@search.score"`, `"prism:url"`, `"dc:identifier"`,
-  `"opensearch:totalResults"`, `"Cntl_LockSeq"`.
-- Quoted string that looks like a REST API field name (camelCase or
-  snake_case): `"refresh_token_expires_in"`, `"developer.email"`.
-- `followed_by` is anything other than `nothing` — particularly
-  `sub_selection` (literals don't have sub-fields, so this is
-  unambiguous; the parser-level fix in commit `bee6b0032` already
-  handles this case, but legacy schemas may still surface it).
-
-Rewrite shape: `"@odata.nextLink"` → `$."@odata.nextLink"`; bare
-`null`/`true`/`false` → `$.null` / `$.true` / `$.false`.
-
-#### Embrace-v0.4 — Almost certainly a literal
-
-The v0.4 reading is what the developer wanted all along; the v0.3
-behavior was silently broken. The token is left unchanged in the
-rewrite block. Heuristics:
-
-- Bare `null` / `true` / `false`. The corpus shows these are almost
-  always intended as placeholder values — `description: null`,
-  `success: true`. In v0.3 the parser tried to look up a field named
-  `null`/`true`/`false` in the upstream response, didn't find it,
-  returned `None`, and GraphQL's response normalization surfaced that
-  as `null` — accidentally matching the literal-intent the developer
-  expressed. v0.4 makes the intent explicit and removes the dependence
-  on that incidental normalization.
-- Short uppercase constants: `"USD"`, `"USA"`, `"PASSENGER"`.
-- Currency-like or formatting tokens: `"0.00"`, `"-"`, `"2x"`.
-- Single-character placeholders.
-
-If every token in the section falls into this bucket, the section's
-Proposed rewrite equals the original selection and the checklist
-defaults to `leave the source unchanged`.
-
-#### What about ambiguous tokens?
-
-Sections with at least one ambiguous token still default to
-`apply the rewrite above` with the safest fortification pre-applied
-(the v0.3 reading is preserved). The reasoning bullet under the
-Original selection should note the ambiguity so the developer knows
-to inspect the rewrite. If they accept v0.4 for the ambiguous token,
-they edit that line of the rewrite block back to the original form.
-
-### Step A3: write `recommendations.md`
-
-`connect-migrate analyze` produces the file. You don't author it by
-hand — but you do need to know the format because Mode B reads it
-back, and because the developer may ask why a particular section is
-shaped the way it is.
-
-See the [Recommendations format](#recommendations-format) section
-below for the spec and a worked example.
-
-### Step A4: read the result kind, then hand off
-
-Open `recommendations.md` and read the `<!-- result: … -->` marker
-at the top of the file. That single token determines what you say to
-the developer and whether Mode B applies. See [Result kinds](#result-kinds)
-for the full prescription; the short form per kind:
-
-- **`empty-scan`** — no `.graphql` files matched the path. Report
-  what you scanned and ask the developer for a different path. Do
-  not enter Mode B.
-- **`nothing-to-migrate`** — files scanned, but no `@connect`
-  directives present. Report this and ask whether to look elsewhere.
-  Do not enter Mode B.
-- **`safe-to-upgrade`** — directives present, zero divergent
-  selections. State the verdict plainly (the file's own preamble
-  is suitable to quote) and point the developer at the
-  ready-to-paste `@link` snippet in the file. Do not enter Mode B.
-- **`needs-decisions`** — hand the file over for review:
-
-  > Suggested prompt:
-  >
-  > > I've written `recommendations.md` with N section(s) covering K
-  > > divergent `@connect` token(s). Each section has a checklist with
-  > > two options and a rewrite block pre-filled with my recommendation.
-  > > Review each section: flip the checkbox if you want to leave the
-  > > source unchanged instead, edit the rewrite block if you want a
-  > > different replacement, or both. When you're ready, tell me and
-  > > I'll apply the changes to your source files (per Mode B in this
-  > > skill) and re-run `connect-migrate analyze` to verify.
-
-  Then wait for the developer's review before entering Mode B.
-
-Do not start editing source files automatically — not even the
-`@link` URL bump in the `safe-to-upgrade` case. The two-step flow
-exists so that source changes only happen after the developer has
-read the analyzer's verdict and asked for them.
+`analyze` walks `.graphql` files, finds every `@connect(selection: …)`
+directive, dual-parses each selection under the v0.3 and v0.4 grammars,
+and writes the differing sites to stdout. Selections that parse
+identically are not emitted — they need no migration. Use `-o <path>`
+to have `analyze` write the file itself, or `--format json` for one
+JSONL record per site if you'd rather consume typed records than parse
+markdown.
 
 ---
 
-## Mode B — Apply: edit the source from the developer's decisions
+## Step 2: read the verdict
 
-Use this mode when the developer has reviewed `recommendations.md`
-and is ready to commit the changes (or has said so explicitly).
+Read the `<!-- result: … -->` marker at the top of the manifest and
+switch on it before reading prose. See [Result kinds](#result-kinds)
+for the full prescription:
 
-`connect-migrate` does not include an `apply` subcommand. The
-mechanical text replacement step is **yours** — that's why this
-SKILL.md exists. The `recommendations.md` format is designed so that
-a tool-using agent (you) can apply it deterministically with normal
-file-editing primitives.
+- **`empty-scan`** — no `.graphql` files matched. Report the path you
+  passed; ask for a different one. Stop.
+- **`nothing-to-migrate`** — files scanned, no `@connect` directives.
+  Report it; ask whether to look elsewhere. Stop.
+- **`safe-to-upgrade`** — directives present, zero divergence. State the
+  verdict and point the developer at the `@link` snippet in the file.
+  No source edits beyond the developer's own `@link` bump.
+- **`safe-after-rewrites`** — divergence exists but every site is
+  mechanical: apply the rewrites (Step 3), then verify (Step 5). There
+  are **no questions** — a clean bill of health.
+- **`needs-decisions`** — apply the rewrites (Step 3), then interview
+  the developer over the questions (Step 4).
+
+Do not edit source until you've read the verdict and, for the `@link`
+bump, have the developer's go-ahead.
+
+---
+
+## Step 3: apply the rewrites
+
+The manifest's **`## Rewrites to apply`** section lists deterministic
+`$.` fortifications. Each is behavior-preserving by construction — it
+restores a v0.3 field access that v0.4 would otherwise read as a literal
+— so you apply them without asking the developer to adjudicate. Show the
+diff; a single batched go-ahead before writing is good practice.
+
+**The `## Rewrites to apply` section is the authoritative work list.**
+Apply *exactly* the `site v2` blocks present there, using each block's
+`rewrite_to` verbatim — no more, no less. This is what makes the section
+editable: to **skip** a rewrite, delete its block; to **change** a
+replacement, edit its `rewrite_to`. Never recompute a fortification the
+developer removed or overrode, and never apply one that isn't listed. If
+the developer curates the list (in the file or by telling you), honor
+the curated list as-is.
+
+**Resuming from a handed-in manifest?** Before applying, confirm it's
+still current: each block's `id` should still match a directive in the
+source at its `file`/`line`. If an `id` no longer resolves, the source
+changed since the manifest was written — re-run `analyze` (Step 1) and
+re-collect any decisions rather than applying a stale block.
+
+Each rewrite carries a machine block:
+
+```
+<!-- connect-migrate site v2
+  id: 7470d4c2
+  file: itemlibraryserv.graphql
+  line: 99
+  col: 205
+  byte_offset: 8746
+  coordinate: Query.merchantItem
+  kind: key_quoted_flipped_to_literal_string
+  text: "USD"
+  source_range: 99..104
+  followed_by: nothing
+  recommendation: keep-v0.3
+  rewrite_to: "$.\"USD\""
+-->
+```
+
+To apply one:
+
+1. Open `file:` and navigate to **`line:`/`col:`** (or `byte_offset:`) —
+   the start of the host `@connect(...)` directive. **Do not use
+   `coordinate:` as the locator** — it isn't unique across files; it's
+   informational only, useful to sanity-check you're at the right
+   directive.
+2. Inside that directive's `selection: "…"` (or `"""…"""`) argument,
+   the token `text` occupies `source_range` (byte offsets into the
+   selection body). Replace it with `rewrite_to` — the exact
+   replacement text.
+3. **Preserve quoting and indentation.** Keep `"""` vs `"` as the source
+   has it. GraphQL block strings strip common leading whitespace at
+   parse time, so re-indent the spliced text to match the surrounding
+   lines for a clean diff; nothing depends on indentation semantically.
 
 ### Safety contract
 
-Every edit you make in Mode B must leave the developer's source
-code **at least as good as it was** along every axis the developer
-cares about:
+Every edit must leave the source **at least as good as it was**:
 
-- **Parsing.** Each touched `.graphql` file must continue to parse
-  cleanly under `connect/v0.4` after your edits. The post-apply
-  `connect-migrate analyze` run in Step B4 is the authoritative check;
-  any section the developer approved for rewrite must show zero
-  residual divergence in that run.
-- **Behavior.** The semantic intent the developer expressed
-  (via checkbox and rewrite-block edits) is what gets written; do
-  not silently expand the change set.
-- **Formatting.** Untouched lines stay byte-identical. Touched
-  selections splice in the rewritten body at the source's
-  conventional indentation; nothing outside the affected
-  `selection: "..."` argument is modified.
-- **Recovery.** If any post-apply check fails for a given section,
-  revert that section's edit and report the failure to the
-  developer before declaring the run successful. Partial-success
-  is acceptable only when the developer can see clearly what did
-  and did not apply.
+- **Parsing.** Each touched `.graphql` file must still parse under
+  `connect/v0.4`. The Step 5 re-analyze is the authoritative check.
+- **Behavior.** Write only the fortification in `rewrite_to`. Do not
+  expand the change set.
+- **Formatting.** Untouched lines stay byte-identical; only the token's
+  byte range inside the selection changes.
+- **Recovery.** If a post-apply check fails for a site, revert that
+  edit and report it before declaring success. Partial success is fine
+  only when the developer can see exactly what did and didn't apply.
 
-If you cannot satisfy these guarantees for a section, **stop and
-escalate to the developer.** Their source is not for fall-back
-heuristics to chip away at.
+If you can't satisfy these for a site, **stop and escalate.**
 
-### Step B1: read the recommendations file and validate it
+---
 
-Re-read `recommendations.md`. For each section, confirm:
+## Step 4: interview the developer over the questions
 
-- **Exactly one checkbox is marked `[x]`** in the `**Decide:**` list.
-  If zero or two are checked, stop and ask the developer to fix it.
-- **If `apply the rewrite below` is checked, the rewrite block is
-  non-empty.** A blank block means the developer accidentally
-  cleared it; ask before proceeding.
-- **The HTML identity comments match a current `@connect` directive
-  in the listed file.** Re-running `connect-migrate analyze` now and
-  spot-checking IDs is cheaper than discovering a stale ID after
-  editing. If a section's ID is no longer in the fresh output, the
-  developer edited the source between analyze and now — regenerate
-  the file and re-collect their decisions.
+Only `needs-decisions` manifests have a non-empty **`## Questions for the
+developer`** section. Each item is a genuine fork the analyzer cannot
+resolve — a structural divergence where the v0.3 and v0.4 readings are
+both plausible and the right answer depends on the developer's backend.
 
-### Step B2: preview the edits
+Distill, don't interrogate. The manifest already groups sites that share
+a single decision (`occurrences:` / `(×N)`), so ask **one question per
+distinct fork**, not one per site. For each:
 
-For each section the developer marked `apply the rewrite below`:
-
-1. Open the source file at the `file:` path from the identity
-   comment.
-2. Navigate to **`line:`/`col:`** within that file — that is the
-   start of the `@connect(...)` directive. The `byte_offset:` field
-   gives the same location as a byte index, useful if your editor
-   prefers offsets. **Do not use `coordinate:` as the locator** —
-   coordinates aren't unique across files (extensions, multi-subgraph
-   setups) and are present only as informational metadata for human
-   review. Use coordinate to sanity-check that you're looking at the
-   right directive after navigating, not to find it.
-3. The selection lives inside that directive's `selection: "..."`
-   argument — a single-line `"..."` string or a triple-quoted
-   `"""..."""` block string. The body of that string is what gets
-   replaced.
-4. Show the developer the diff (your editor / agent's preview tool /
-   `git diff` after a dry run, depending on environment). Get
-   explicit go-ahead before writing.
+- Show the `coordinate`, the `file:line` locator, and the windowed
+  selection context the manifest provides.
+- State the two readings plainly and ask which matches their intent. Do
+  not guess or pre-recommend — their REST API knowledge beats your
+  priors.
+- Apply their answer with the same Step 3 safety contract. If they
+  choose the v0.3 reading, fortify with `$.`; if v0.4, leave it.
 
 > Suggested prompt:
 >
-> > I'm ready to apply N section(s) across K file(s). Here's the
-> > combined diff:
-> >
-> > [show diff]
-> >
-> > Proceed?
+> > `Query.merchantTax` parses differently under v0.4 here: [context].
+> > In v0.3 this read as X; in v0.4 it reads as Y. Which did you intend?
+> > (This one answer covers all N occurrences.)
 
-### Step B3: write the edits
+---
 
-For each section the developer approved:
+## Step 5: verify
 
-- **Replace the body** of `selection: "..."` (or `selection: """..."""`)
-  with the contents of that section's rewrite block.
-- **Preserve the surrounding quoting style** — if the source uses
-  `"""`, keep `"""`; if it uses `"`, keep `"`.
-- **Re-indent the rewrite block to match the source.** The rewrite
-  block in `recommendations.md` is emitted decoded (no leading
-  whitespace). When splicing it into a `"""..."""` block string,
-  re-apply the surrounding lines' indentation to each line of the
-  rewrite block so the resulting diff matches the project's
-  existing style.
+Re-run `analyze` against the same path. Expected post-apply state:
 
-  GraphQL block strings strip common leading whitespace at parse
-  time, so indentation is purely a readability concern; nothing
-  depends on it semantically. Always insert the rewritten code in
-  the most appropriate, conventional form for the surrounding
-  source — match the existing indent if it is consistent, or pick
-  the closest sensible indent if the existing body is irregular.
+- Sites you fortified no longer appear (their `id` is gone from the new
+  manifest).
+- No-op sites may still appear — their source is byte-identical and that
+  is correct.
+- **No new sites** appear. A new divergence means an edit went wrong —
+  revert it and escalate.
 
-  Single-line strings (`selection: "..."`) carry no indentation
-  question; splice the rewrite block contents between the quotes.
-- **Do not touch sections marked `leave the source unchanged`.**
+A clean run lands on `safe-to-upgrade` (or `safe-after-rewrites` if only
+no-op sites remain). Then run the project's build check (`cargo check`,
+`npm run check`, etc.) and, if a sandbox is available, spot-check a
+selection or two against real backend responses.
 
-### Step B4: verify
+---
 
-Re-run `connect-migrate analyze .`. The expected post-apply state:
+## Step 6: audit trail and summary
 
-- **Zero residual divergence** for any section the developer
-  approved for rewrite. The section's `id` should not appear in
-  the new analyze output.
-- **Sections marked `leave the source unchanged`** still appear in
-  the new analyze output with the same `id`s; their source is
-  byte-identical.
-- **No new sections** appear that weren't in the original run.
-  Their appearance indicates the edit introduced a new divergence
-  somewhere — revert the offending edit and escalate.
-
-If any of these fail, the safety contract is broken. Revert the
-relevant edits (your editor's undo, `git restore`, or re-running
-the apply from a fresh state) and surface the failure to the
-developer before continuing.
-
-After verification passes:
-
-- Run `cargo check` (or `npm run check`, or the project's
-  equivalent) to confirm the broader build is unaffected.
-- Spot-check one or two representative selections against real
-  backend responses if a sandbox is available.
-
-### Step B5: archive the audit trail
-
-`recommendations.md` is a durable record of what was decided and
-what was changed. Suggest the developer commit it alongside the
-source edits, with a commit message like:
+The timestamped manifest is a durable record of what diverged and what
+was decided. Suggest committing it alongside the source edits:
 
     chore(connectors): v0.3 → v0.4 migration
 
-    Driven by `connect-migrate analyze`; per-decision audit log
-    preserved at recommendations.md.
+    Driven by `connect-migrate analyze`; manifest preserved as the
+    per-decision audit log.
 
-### Step B6: summarize for the developer
-
-Once verification passes, report back with a single short summary so
-the developer can confirm the run matched their intent:
+Then summarize:
 
 > Suggested prompt:
 >
-> > Migration complete. K section(s) rewritten; L section(s) left
-> > unchanged. Post-apply `connect-migrate analyze` reports zero
-> > unintended divergence. The audit log is preserved at
-> > `recommendations.md`. Ready to commit?
+> > Migration complete. K site(s) fortified, M no-op(s) left as-is, Q
+> > question(s) resolved with you. Post-apply `connect-migrate analyze`
+> > reports zero unintended divergence. The manifest is preserved as the
+> > audit log. Ready to commit?
 
-If a follow-up step is appropriate (run the project's tests, deploy
-a canary, check a staging environment against real backend
-responses), name it explicitly rather than leaving it to the
-developer to remember.
+Name any appropriate follow-up (run tests, deploy a canary, check
+staging) explicitly rather than leaving it to the developer to remember.
 
 ---
 
-## Recommendations format
+## Manifest format
 
-`connect-migrate analyze` writes a single markdown file. Its shape
-depends on what the analyzer found — see [Result kinds](#result-kinds)
-below for the four cases. When divergent selections exist, the file
-contains one section per `@connect(selection: …)` directive that
-needs a decision. The format is versioned via the leading
-`<!-- connect-migrate recommendations v1 -->` comment; future tool
-versions may extend it, but consumers (you, when in Mode B) should
-refuse to act on a file whose version they don't recognize.
+`connect-migrate analyze` writes a single markdown file, versioned via
+the leading `<!-- connect-migrate manifest v2 -->` comment. Refuse to act
+on a file whose version you don't recognize.
 
-The metadata block at the top is machine-readable. Read these
-comments before parsing prose:
+### Header (machine-readable)
 
-- **`<!-- result: empty-scan | nothing-to-migrate | safe-to-upgrade | needs-decisions -->`**
-  — the analyzer's verdict in one token. Always present. Determines
-  what you say to the developer and whether Mode B applies; see
-  [Result kinds](#result-kinds).
-- **`<!-- files-scanned: N -->`** — count of `.graphql` files
-  actually visited during the walk.
-- **`<!-- directives-analyzed: D -->`** — count of `@connect`
-  directives whose `selection` parsed cleanly under both v0.3 and
-  v0.4. This is the denominator for "every selection parses
-  identically."
-- **`<!-- divergent-sites: K -->`** — count of divergent tokens
-  reported below. Zero when `result` is anything other than
+Read these comments before parsing prose:
+
+| Comment | Meaning |
+|---------|---------|
+| `result:` | The verdict in one token — see [Result kinds](#result-kinds). Always present. |
+| `files-scanned:` | `.graphql` files visited. |
+| `directives-analyzed:` | `@connect` directives that parsed cleanly under both grammars. |
+| `divergent-sites:` | Total divergent tokens reported. |
+| `auto-fixes:` | Sites in *Rewrites to apply*. |
+| `no-ops:` | Sites in *No action needed*. |
+| `questions:` | Sites in *Questions for the developer*. The number that matters: zero means a clean bill of health. |
+| `upgrade:` | The source `connect/v0.n` version(s) found across the schemas → the target (`connect/v0.4`). |
+| `parse-notices:` | Selections that couldn't be diffed (see *Heads up* below). |
+
+### Title, upgrade, and scope
+
+Directly under the H1 title:
+
+- An **Upgrade** line names the source `connect/v0.n` version(s) detected
+  across the schemas and the target — e.g. `connect/v0.2 (7 schemas) ·
+  connect/v0.3 (5 schemas) → connect/v0.4`. The "from" version is read
+  per schema from its `@link(url: ".../connect/v0.n")`, and each
+  schema's selections are diffed at *its own* version against v0.4 — a
+  v0.2 schema is compared as v0.2, not assumed to be v0.3.
+- A **Scope** line names the project root, the schema count, and the
+  directive count, followed by a `Schemas considered:` list of every
+  `.graphql` file the run walked. Read it first: it's how you confirm
+  the run covered the schemas you expected. If an expected schema isn't
+  listed, the path argument was wrong — re-run before trusting the
+  verdict.
+
+### Body: three buckets
+
+- **`## Rewrites to apply`** — one `site v2` machine block per
+  fortification, followed by a human-readable bullet list. Apply these
+  (Step 3).
+- **`## No action needed`** — a token-frequency rollup of the no-op
+  `null`/`true`/`false` sites. Informational; make no edits.
+- **`## Questions for the developer`** — one entry per genuine
+  ambiguity, each with a machine block, a one-line statement of the
+  fork, and a windowed selection context. Empty unless `result` is
   `needs-decisions`.
+- **`## After applying — switch to connect/v0.4`** — the closing
+  section, with the ready-to-paste `@link(.../connect/v0.4)` line each
+  migrated schema should adopt once its rewrites (and any questions) are
+  done. Point the developer here so they know the target to update to.
 
-### Document structure (worked example)
+### Heads up — selections not analyzed
 
-````````markdown
-<!-- connect-migrate recommendations v1 -->
-<!-- result: needs-decisions -->
-<!-- generator: connect-migrate 0.X.Y -->
-<!-- generated-at: 2026-05-19T14:28:18Z -->
-<!-- project-root: . -->
-<!-- files-scanned: 3 -->
-<!-- directives-analyzed: 12 -->
-<!-- divergent-sites: 5 -->
+A `## Heads up — selections not analyzed (N)` section appears only when
+some `@connect` selection failed to parse, so it couldn't be diffed.
+This is **non-fatal** — the rest of the manifest stands — but each entry
+needs a look:
 
-# `connect/v0.3` → `connect/v0.4` migration recommendations
+- *parses under the linked spec but not under `connect/v0.4`* — the
+  selection would break on upgrade; it must be fixed before migrating.
+- *parses under `connect/v0.4` but not under the linked spec* — it uses
+  syntax newer than the schema declares (a latent inconsistency).
+- *parses under neither* — a pre-existing syntax error, out of scope.
 
-2 section(s) need a decision (5 divergent token(s) across 2 `@connect`
-selection(s)). For each section, edit the rewrite block as needed and
-check the box that reflects your decision. Then hand the edited file
-back to your migration assistant (`connect-migrate agent-guide` prints
-the prose it should follow).
+Surface these to the developer; don't try to auto-fix them.
 
-Each section has two decision options. **Exactly one must be checked.**
-The defaults reflect what the analyzer recommends; edit the rewrite
-block, flip the checkbox, or both.
+### `site v2` machine block
 
-- **leave the source unchanged** — your assistant makes no change
-  (accept the v0.4 literal reading).
-- **apply the rewrite below** — your assistant replaces the selection
-  contents with the rewrite block below.
+One block per site (grouped sites carry `occurrences: N`):
 
----
-
-## section 1 of 2 — `subgraphs/billing/connector.graphql` (`Invoice.partner`)
-
-<!-- connect-migrate site v1
-  id: fa3c7e92
-  file: subgraphs/billing/connector.graphql
-  line: 42
-  col: 17
-  coordinate: Invoice.partner
-  kind: key_quoted_flipped_to_literal_string
-  text: "sold-to"
-  followed_by: nothing
-  recommendation: keep-v0.3
--->
-<!-- connect-migrate site v1
-  id: 7b22a014
-  file: subgraphs/billing/connector.graphql
-  line: 42
-  col: 17
-  coordinate: Invoice.partner
-  kind: key_quoted_flipped_to_literal_string
-  text: "bill-to"
-  followed_by: nothing
-  recommendation: keep-v0.3
--->
-
-**Original selection:**
-
-```graphql
-soldTo: "sold-to"
-billTo: "bill-to"
-```
-
-- `"sold-to"` contains characters not valid in a GraphQL identifier,
-  so it is almost certainly a quoted field name from a REST response.
-- `"bill-to"` contains characters not valid in a GraphQL identifier,
-  so it is almost certainly a quoted field name from a REST response.
-
-**Decide:**
-- [ ] leave the source unchanged
-- [x] apply the rewrite below
-
-```graphql
-soldTo: $."sold-to"
-billTo: $."bill-to"
-```
+| Field | Notes |
+|-------|-------|
+| `id` | Stable 8-hex content hash; survives line shifts. |
+| `file` | Path relative to `project-root`. |
+| `line`, `col` | 1-indexed start of the host `@connect` directive. **Authoritative locator.** |
+| `byte_offset` | Same location as a byte index. |
+| `coordinate` | `Type.field`. **Informational only** — not unique across files; never use as a locator. |
+| `from` | The `connect/v0.n` spec the host schema links — the "from" side of this site's upgrade. |
+| `kind` | `key_quoted_flipped_to_literal_string`, `key_flipped_to_literal_null`, `key_flipped_to_literal_bool`, `key_field_flipped_to_literal_string`, or a structural kind. |
+| `text` | The token's source text (JSON-escaped). |
+| `source_range` | Byte range `start..end` of the token *within the selection body*. |
+| `followed_by` | `nothing`, `sub_selection`, `key_access`, `method`, `question`. |
+| `recommendation` | `keep-v0.3` (fortify), `embrace-v0.4` (no-op), or `???` (a question). |
+| `rewrite_to` | Present on auto-fixes: the exact replacement text for `text` (JSON-escaped). |
 
 ---
 
-## section 2 of 2 — `subgraphs/billing/connector.graphql` (`Invoice.status`)
+## Result kinds
 
-<!-- connect-migrate site v1
-  id: 5454cd79
-  ...
-  text: "null"
-  recommendation: embrace-v0.4
--->
+- **`empty-scan`** — zero `.graphql` files visited (`files-scanned: 0`).
+  Almost always a path mistake. Report the path; ask for another. Stop.
+- **`nothing-to-migrate`** — files scanned, no `@connect` directives
+  parsed cleanly (`directives-analyzed: 0`). Usually means no connectors
+  here; but if a `## Heads up` section is present, there *were* `@connect`
+  directives that failed to parse — read those before concluding. Stop.
+- **`safe-to-upgrade`** — directives present, zero divergence
+  (`divergent-sites: 0`). A trustworthy positive verdict, not the
+  absence of one. State it; point at the `@link` snippet. Stop.
+- **`safe-after-rewrites`** — divergence exists, but every site is a
+  deterministic fortification or a no-op (`questions: 0`). Apply the
+  rewrites; no developer decisions are required.
+- **`needs-decisions`** — at least one genuinely ambiguous site
+  (`questions: > 0`). Apply the rewrites, then interview the developer
+  over the questions.
 
-**Original selection:**
+Each schema is diffed at its **own** linked `connect/v0.n` version
+against the v0.4 target (see the `Upgrade` line), so a mixed-version
+project is handled correctly. A schema already on `connect/v0.4` shows
+zero divergence — it's at the target.
 
-```graphql
-status: null
-```
+---
 
-- Bare `null` in value position is almost always intended as a literal
-  null value; v0.3 returned the same thing accidentally via response
-  normalization.
+## Classification doctrine
 
-**Decide:**
-- [x] leave the source unchanged
-- [ ] apply the rewrite below
+Why the analyzer sorts sites the way it does:
 
-```graphql
-status: null
-```
-````````
-
-### Per-site identity comments
-
-The HTML comment block at the top of each section is the
-machine-readable identity. There is one comment per divergent token
-within the section. `apply` parses these; everything else (reasoning
-bullets, prose) is free-form markdown.
-
-| Field             | Notes |
-|-------------------|-------|
-| `id`              | Stable 8-hex content-hash of the site. Survives line shifts in the source file. |
-| `file`            | Path relative to `project-root`. |
-| `line`, `col`     | 1-indexed position of the host `@connect` directive's start. **Authoritative locator for Mode B.** |
-| `byte_offset`     | Byte offset of the host `@connect` directive's start. Same identification semantics as `line`/`col`; pick whichever your editor prefers. |
-| `coordinate`      | GraphQL schema coordinate (`Type.field`). **Informational only.** Not unique across files; do not use as a locator. |
-| `kind`            | One of: `key_quoted_flipped_to_literal_string`, `key_flipped_to_literal_null`, `key_flipped_to_literal_bool`, `key_field_flipped_to_literal_string`. |
-| `text`            | The literal source text of the token (HTML-comment-escaped). |
-| `followed_by`     | One of: `nothing`, `sub_selection`, `key_access`, `method`, `question`. |
-| `recommendation`  | The analyzer's per-token guess: `keep-v0.3` or `embrace-v0.4`. |
-
-### Decision checklist
-
-A section's `**Decide:**` block is the editable part. The two options
-appear as markdown checkboxes, in this order:
-
-```markdown
-**Decide:**
-- [ ] leave the source unchanged
-- [x] apply the rewrite below
-```
-
-Position-based binding: the first checkbox = "leave alone," the
-second = "apply the rewrite." Exactly one must be checked. When you
-parse this in Mode B, scan for `- [x]` or `- [X]` lines within the
-`**Decide:**` block and key off their position.
-
-### Rewrite block
-
-Each section has a fenced ```graphql block immediately below the
-checklist. Its contents are the literal text that should replace the
-selection body when `apply the rewrite below` is checked. The
-analyzer pre-fills the block with `$.` fortifications applied to
-every token the heuristic classified `keep-v0.3`; tokens classified
-`embrace-v0.4` stay as-is.
-
-Byte-level structure around each token (commas, whitespace,
-indentation, other tokens) is preserved verbatim from the source —
-the analyzer only replaces the divergent token's byte range. JSON
-copy/paste users keep their commas; SubSelection-style users keep
-their lack thereof.
-
-To customize a rewrite, the developer edits the block. To revert any
-specific fortification, they delete the `$.` prefix on that line. To
-accept the analyzer's recommendation as-is, they leave the block
-alone; flipping the checkbox without editing the block also works
-(`leave the source unchanged` means the rewrite block is ignored
-entirely).
+- **Quoted token → fortify (`keep-v0.3`).** A quoted token was a
+  `Key::Quoted` field access in v0.3 with *no* literal-string meaning
+  available. Treating it as a v0.4 literal would silently change
+  behavior. Always `$."…"`. The character content is irrelevant —
+  `"USD"` and `"@odata.nextLink"` are handled identically.
+- **Bare identifier → fortify (`keep-v0.3`).** Was a `Key::Field`
+  reference in v0.3; same logic. `foo` → `$.foo`.
+- **`followed_by` not `nothing` → fortify.** A literal can't have a
+  field, method, or sub-selection, so a trailing `.x`, `->m()`, or
+  `{ … }` proves the v0.3 field-reference reading was intended.
+- **Bare `null`/`true`/`false` → no-op (`embrace-v0.4`).** A field
+  literally named `null` is implausible; v0.3 resolved it to null via
+  response normalization, so the output coincides with the v0.4 literal.
+  Leave it.
+- **Structural divergence → question (`???`).** Anything the analyzer
+  can't place in the above (a sub-selection/object-literal shape flip it
+  can't prove equivalent). These are the only sites that reach the
+  developer.
 
 ---
 
 ## Boundary conditions
 
-These come up rarely but are worth knowing:
-
 - **`legacy_object_to_lit_object`** — a cosmetic AST shape difference
-  from the unification itself. Same evaluation semantics under both
-  grammars. `analyze` does not emit these as sites; if you see one in
-  a recommendations file from a prior tool version, check `leave the
-  source unchanged` for that section.
-- **`v04_only_accepts`** — the selection uses v0.4-only syntax (e.g.
-  the `…` spread). The developer is already committed to v0.4 here; no
-  migration is possible or needed. `analyze` does not emit these; if
-  you encounter one in source while reviewing, leave it alone.
-- **`v03_only_accepts`** — should never appear in v0.4 after the
-  parser fix. If you see one, treat it as a bug in `connect-migrate`
-  and escalate (file an issue against the connect-migrate repo).
-- **Pre-existing syntax errors** — selections that don't parse under
-  either grammar. `analyze` reports these separately at the top of
-  the file under a "could not parse" heading. They're not migration
-  targets — they were already broken — but they're worth surfacing so
-  the developer can fix them.
+  from the unification; same evaluation semantics. `analyze` does not
+  emit these as sites.
+- **`v04_only_accepts`** — the selection uses v0.4-only syntax (e.g. the
+  `…` spread). Already committed to v0.4; nothing to migrate. Not
+  emitted; if you meet one in source, leave it.
+- **`v03_only_accepts`** — should never appear after the parser fix.
+  Treat as a `connect-migrate` bug and file an issue.
+- **Pre-existing syntax errors** — selections that parse under neither
+  grammar. They appear in the `## Heads up` section; surface them for
+  awareness. They predate the migration and are out of scope. Do not
+  repair them.
+- **Non-selection spec changes** — this tool diffs `@connect(selection:)`
+  *mapping* only. Other version-to-version changes (e.g. the v0.2→v0.3
+  arrow-method shape / URI-validation change, or `@connect`/`@source`
+  argument changes) are **not** analyzed. For a multi-version jump
+  (v0.2 → v0.4), consult the connect spec changelog for anything beyond
+  selection mapping.
 
-## Result kinds
-
-Every `recommendations.md` carries a single `<!-- result: … -->`
-marker in its metadata block. The marker is the analyzer's verdict
-in one token; switch on it before reading prose.
-
-- **`empty-scan`** — the walk visited zero `.graphql` files.
-  `files-scanned: 0`. Almost always a path-argument mistake. Tell
-  the developer exactly which path you passed and ask for a
-  different one. Do not enter Mode B.
-
-- **`nothing-to-migrate`** — files were scanned but contain no
-  `@connect` directives. `files-scanned: > 0`, `directives-analyzed: 0`.
-  Either the project does not use Apollo Connectors or its connector
-  schemas live elsewhere. Report this plainly and ask whether to
-  look in a different directory. Do not enter Mode B.
-
-- **`safe-to-upgrade`** — `@connect` directives are present and
-  every one of their selections parses identically under
-  `connect/v0.3` and `connect/v0.4`. `directives-analyzed: > 0`,
-  `divergent-sites: 0`. This is a **trustworthy positive verdict
-  from the analyzer, not the absence of one** — the question your
-  developer is asking ("is upgrading to v0.4 safe?") has a clear
-  yes, with no source changes required. State the verdict plainly
-  (the file's own preamble reads naturally; you can quote it) and
-  point the developer at the ready-to-paste `@link` snippet under
-  the verdict. Do not enter Mode B; the `@link` URL change is the
-  developer's to make.
-
-- **`needs-decisions`** — at least one divergent selection needs a
-  developer decision. `divergent-sites: > 0`. This is the per-section
-  review flow described above in Mode A / Mode B. Hand the file over
-  per Step A4 and wait for the developer's review.
-
-Partial prior migrations land naturally in `needs-decisions` (or
-`safe-to-upgrade` if the developer finished). A schema that already
-declares `@link(url: "…connect/v0.4")` is no different — analyze
-dual-parses every selection regardless of the linked version, and
-its verdict is the same one a fresh v0.3 schema would get.
+---
 
 ## Failure modes
 
-These are the exceptional cases that prevent the analyzer from
-running cleanly, or that require attention before continuing past
-its verdict:
+- **`connect-migrate` not installed.** Run the install command, retry.
+  On an unsupported-platform error from `install.sh`, surface it
+  verbatim and stop; do not build from source unattended.
+- **Source changed between analyze and apply.** Before editing, confirm
+  each site's `id` still appears in a fresh `analyze` run. If an `id` is
+  gone, the source moved under you — regenerate the manifest and restart
+  rather than guess.
 
-- **`connect-migrate` is not installed.** Run the install command
-  from the [Prerequisite](#prerequisite-install-connect-migrate)
-  section, then retry. If `install.sh` exits with an
-  unsupported-platform error, surface its message verbatim and
-  stop. Do not attempt to build the binary from source unattended.
-- **Pre-existing parse errors.** Analyze surfaces these at the top
-  of `recommendations.md` under a "could not parse" heading. Show
-  them to the developer for awareness; they predate the migration
-  and are out of scope for this flow. Do not attempt to repair
-  them.
-- **Source changed between analyze and apply.** Mode B Step B1
-  validates identity comments against the current source. If a
-  section's `id` no longer matches, regenerate `recommendations.md`
-  and restart Mode B from B1 rather than guess at the developer's
-  intent.
+---
 
 ## Tone
 
-- Read the developer's code; don't speculate. Their REST API
-  knowledge beats your priors.
-- Lead with the source range and the proposed before/after. Don't
-  bury the diff under prose.
-- It is correct and often preferable to check `leave the source
-  unchanged` on a section. That isn't a missed fix — it's a
-  deliberate upgrade to the cleaner v0.4 reading.
-- For genuinely ambiguous sites, ask. The developer pays one extra
-  message and avoids a behavior regression.
-- After `apply`, summarize: how many sites changed, how many were left
-  alone, where the durable record lives. Don't claim success unless
-  the post-apply analyze reports zero unintended divergence.
+- Read the developer's code; don't speculate. Their REST API knowledge
+  beats your priors.
+- Lead with the source range and the before/after. Don't bury the diff.
+- Apply the mechanical rewrites confidently — they're behavior-preserving
+  by construction. Reserve the developer's attention for the genuine
+  questions.
+- For an ambiguous site, ask. One extra message beats a behavior
+  regression.
+- Don't claim success unless the post-apply `analyze` reports zero
+  unintended divergence.
 
 <!-- FOLLOW-UP: this file is duplicated at
      apollographql/router:apollo-federation/src/connectors/migration/agent_guide.md
-     which is embedded into the binary via `--agent-guide`. Future work:
-     decide between (a) CI-enforced hash match, (b) fetch this file at
-     build time, or (c) drop the embed entirely and rely on the install
-     having put SKILL.md on disk. -->
+     which is embedded into the binary via `connect-migrate agent-guide`.
+     Future work: decide between (a) CI-enforced hash match, (b) fetch
+     this file at build time, or (c) drop the embed entirely and rely on
+     the install having put SKILL.md on disk. -->
