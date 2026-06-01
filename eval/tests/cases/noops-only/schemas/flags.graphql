@@ -1,0 +1,25 @@
+extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.10", import: ["@key"])
+  @link(url: "https://specs.apollo.dev/connect/v0.3", import: ["@connect", "@source"])
+  @source(name: "flags", http: { baseURL: "https://example.test/flags" })
+
+type Query {
+  flag(id: ID!): Flag
+    @connect(
+      source: "flags"
+      http: { GET: "/flags/{$args.id}" }
+      selection: """
+      id
+      enabled: true
+      archived: false
+      note: null
+      """
+    )
+}
+
+type Flag @key(fields: "id") {
+  id: ID!
+  enabled: Boolean
+  archived: Boolean
+  note: String
+}

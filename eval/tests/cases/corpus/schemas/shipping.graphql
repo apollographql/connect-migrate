@@ -1,0 +1,13 @@
+extend schema
+  @link(url: "https://specs.apollo.dev/connect/v0.2", import: ["@connect", "@source"])
+  @source(name: "shipping", http: { baseURL: "https://example.test/shipping" })
+
+type Query {
+  rate(zone: ID!): Rate
+    @connect(source: "shipping", http: { GET: "/rate/{$args.zone}" }, selection: "zone cost: primary ?? fallback")
+}
+
+type Rate {
+  zone: ID
+  cost: Float
+}
