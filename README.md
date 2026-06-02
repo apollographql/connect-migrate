@@ -19,6 +19,8 @@ The current target is **`connect/v0.4`** — the [SubSelection/LitObject grammar
 
 ## Install
 
+> **Before anything below works:** this repo is **private**, so you need **read access** to it (as a collaborator or via an Apollo team) and the [GitHub CLI](https://cli.github.com/) **authenticated** (`gh auth login`). Without both, every download — including `gh release download` — returns a `404`. Once the repo is public, the plain `curl …/install.sh | sh` one-liner works with no auth.
+
 ### Unix (macOS, Linux)
 
 **While this repo is private, the raw `curl …/install.sh | sh` one-liner 404s** — the script can't be fetched anonymously. Use an authenticated release download via the [GitHub CLI](https://cli.github.com/) (it reuses your existing `gh` login):
