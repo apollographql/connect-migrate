@@ -1,3 +1,20 @@
+---
+name: connect-migrate
+description: >
+  Upgrade Apollo Connectors schemas from connect/v0.2 or connect/v0.3 to
+  connect/v0.4, where the SubSelection/LitObject grammar unification changes how
+  some @connect(selection: …) expressions parse. Use this skill when the user:
+  (1) wants to migrate Apollo Connectors to connect/v0.4 or bump a
+  @link(url: ".../connect/v0.n") version to v0.4,
+  (2) has @connect(selection: …) selections needing behavior-preserving `$.`
+  fortification (quoted keys or bare identifiers that v0.4 re-reads as literals),
+  (3) references the connect-migrate CLI, its analyze manifest, or agent-guide
+  output,
+  (4) asks whether their connector schemas are safe to upgrade to connect/v0.4.
+license: MIT
+compatibility: Requires the connect-migrate CLI on PATH (see install.sh). Works with Claude Code and similar AI coding assistants.
+---
+
 # Apollo Connectors `connect/v0.3` → `connect/v0.4` migration skill
 
 You are helping a developer upgrade an Apollo Connectors–enabled

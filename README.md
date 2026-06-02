@@ -65,7 +65,7 @@ The migration is driven by an agent following [`SKILL.md`](SKILL.md). The binary
   - **No action needed** — bare `null`/`true`/`false` whose v0.4 reading is output-identical.
   - **Questions for the developer** — only the genuinely ambiguous, structural divergences.
   It also reports an `Upgrade` line (source versions → v0.4), the schemas in scope, a non-fatal "Heads up" section for selections that fail to parse, and the ready-to-paste `connect/v0.4` `@link`.
-- **`connect-migrate agent-guide`** — prints the migration skill prose embedded in the binary (byte-identical to [`SKILL.md`](SKILL.md)). Pipe into your agent of choice, or read it manually.
+- **`connect-migrate agent-guide`** — prints the migration skill prose embedded in the binary (the body of [`SKILL.md`](SKILL.md), minus its skill-registry frontmatter). Pipe into your agent of choice, or read it manually.
 
 ## Agent skill
 
