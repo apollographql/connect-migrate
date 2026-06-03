@@ -4,7 +4,7 @@ CLI + agent skill for upgrading [Apollo Connectors](https://www.apollographql.co
 
 The current target is **`connect/v0.4`** — the [SubSelection/LitObject grammar unification](https://github.com/apollographql/router/pull/9261) introduced there changes how a small but important class of `@connect(selection: …)` expressions parses. `connect-migrate analyze` reads each schema's linked `connect/v0.n` version, finds the selections that change meaning relative to v0.4, and emits a **manifest** that an agent applies and (where genuinely ambiguous) interviews the developer about.
 
-> **Status:** preview, Apollo-internal. `analyze` and `agent-guide` ship today; the migration is driven by an agent following [`SKILL.md`](SKILL.md) — there is no `apply` subcommand by design (see below). Latest release: see the [Releases page](https://github.com/apollographql/connect-migrate/releases).
+> **Status:** preview / experimental — no stability guarantees. `analyze` and `agent-guide` ship today; the migration is driven by an agent following [`SKILL.md`](SKILL.md) — there is no `apply` subcommand by design (see below). Latest release: see the [Releases page](https://github.com/apollographql/connect-migrate/releases).
 
 ## Why `connect/v0.4` (and why migrate at all)
 
@@ -19,9 +19,19 @@ The current target is **`connect/v0.4`** — the [SubSelection/LitObject grammar
 
 ## Install
 
+> **Before anything below works:** this repo is **private**, so you need **read access** to it (as a collaborator or via an Apollo team) and the [GitHub CLI](https://cli.github.com/) **authenticated** (`gh auth login`). Without both, every download — including `gh release download` — returns a `404`. Once the repo is public, the plain `curl …/install.sh | sh` one-liner works with no auth.
+
 ### Unix (macOS, Linux)
 
-**While this repo is private, the raw `curl …/install.sh | sh` one-liner 404s** — the script can't be fetched anonymously. Use an authenticated release download via the [GitHub CLI](https://cli.github.com/) (it reuses your existing `gh` login):
+Install with the one-line script:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/apollographql/connect-migrate/main/install.sh | sh
+```
+
+`install.sh` drops the binary in `~/.local/bin` by default (override with `CONNECT_MIGRATE_INSTALL_DIR=…`; pick a version with `CONNECT_MIGRATE_VERSION=v0.0.N`). Ensure `~/.local/bin` is on your `PATH`.
+
+Or download a release asset directly with the [GitHub CLI](https://cli.github.com/):
 
 ```sh
 gh release download -R apollographql/connect-migrate \
@@ -29,15 +39,6 @@ gh release download -R apollographql/connect-migrate \
   --dir /tmp/cm && mkdir -p ~/.local/bin && chmod +x /tmp/cm/connect-migrate-* \
   && mv /tmp/cm/connect-migrate-* ~/.local/bin/connect-migrate
 ```
-
-If you have a token, the piped installer also works (it honors `GH_TOKEN`/`GITHUB_TOKEN`, or falls back to `gh auth token`):
-
-```sh
-curl -fsSL -H "Authorization: token $(gh auth token)" \
-  https://raw.githubusercontent.com/apollographql/connect-migrate/main/install.sh | sh
-```
-
-`install.sh` drops the binary in `~/.local/bin` by default (override with `CONNECT_MIGRATE_INSTALL_DIR=…`; pick a version with `CONNECT_MIGRATE_VERSION=v0.0.N`). Once the repo is public, the plain `curl …/install.sh | sh` works without a token.
 
 ### Windows
 
@@ -98,4 +99,4 @@ The Rust crate is upstream in [`apollographql/router`](https://github.com/apollo
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Elastic License 2.0 — see [LICENSE](LICENSE).
