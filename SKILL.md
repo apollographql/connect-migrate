@@ -1,3 +1,20 @@
+---
+name: connect-migrate
+description: >
+  Upgrade Apollo Connectors schemas from connect/v0.2 or connect/v0.3 to
+  connect/v0.4, where the SubSelection/LitObject grammar unification changes how
+  some @connect(selection: …) expressions parse. Use this skill when the user:
+  (1) wants to migrate Apollo Connectors to connect/v0.4 or bump a
+  @link(url: ".../connect/v0.n") version to v0.4,
+  (2) has @connect(selection: …) selections needing behavior-preserving `$.`
+  fortification (quoted keys or bare identifiers that v0.4 re-reads as literals),
+  (3) references the connect-migrate CLI, its analyze manifest, or agent-guide
+  output,
+  (4) asks whether their connector schemas are safe to upgrade to connect/v0.4.
+license: Elastic-2.0
+compatibility: Requires the connect-migrate CLI on PATH (see install.sh). Works with Claude Code and similar AI coding assistants.
+---
+
 # Apollo Connectors `connect/v0.3` → `connect/v0.4` migration skill
 
 You are helping a developer upgrade an Apollo Connectors–enabled
@@ -78,10 +95,14 @@ flow by bouncing them through a separate tool.
 
 The CLI lives at <https://github.com/apollographql/connect-migrate>.
 
-**While the repo is private, the one-line installer can't be fetched
-anonymously** — `curl …/raw.githubusercontent.com/.../install.sh` 404s
-without auth. The reliable path is an authenticated release download via
-the GitHub CLI (`gh`), which picks up your existing login:
+Install it with the one-line script (drops the binary in `~/.local/bin`
+by default — no `sudo`; ensure `~/.local/bin` is on your `PATH`):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/apollographql/connect-migrate/main/install.sh | sh
+```
+
+Or download a release asset directly with the GitHub CLI (`gh`):
 
 ```sh
 gh release download -R apollographql/connect-migrate \
@@ -89,13 +110,6 @@ gh release download -R apollographql/connect-migrate \
   --dir /tmp/cm && mkdir -p ~/.local/bin && chmod +x /tmp/cm/connect-migrate-* \
   && mv /tmp/cm/connect-migrate-* ~/.local/bin/connect-migrate
 ```
-
-(Installs to `~/.local/bin` — no `sudo`, matching `install.sh`. Ensure
-`~/.local/bin` is on your `PATH`.)
-
-If you have a token, the piped installer also works:
-`curl -fsSL -H "Authorization: token $(gh auth token)" …/install.sh | sh`.
-Once the repo is public, the plain `curl …/install.sh | sh` is fine.
 
 Verify with `connect-migrate --version`. **If you cannot install or run
 it, stop and tell the developer** — do not hand-migrate (see Step 1).
