@@ -19,7 +19,7 @@ on:
       router_ref:
         description: 'apollographql/router ref (branch, tag, or commit) to build from'
         required: true
-        default: 'benjamn/connect-migrate-analyze'
+        default: 'dev'
 
 env:
   # Router commit used by tag-triggered release builds. Pin to a full
@@ -29,7 +29,7 @@ env:
   # pattern and silently fails to find it (see v0.0.2's failed build
   # for the worked example). Bump as the connect-migrate tool catches
   # up with apollo-federation changes.
-  RELEASE_ROUTER_REF: 'b088fb1aa985705614cebff9f0c8ad47d214687e'
+  RELEASE_ROUTER_REF: '82aef5f3bdcdabb913c0cbe53ac7b6b16df60883'
 
 jobs:
   build:
