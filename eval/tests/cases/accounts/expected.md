@@ -11,6 +11,8 @@
 <!-- questions: 0 -->
 <!-- upgrade:  -> connect/v0.4 -->
 <!-- parse-notices: 0 -->
+<!-- schemas-skipped: 0 -->
+<!-- already-at-target: false -->
 
 # connect-migrate report — no `@connect` directives present
 

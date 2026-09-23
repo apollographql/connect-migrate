@@ -4,55 +4,101 @@
 <!-- generated-at: NORMALIZED -->
 <!-- project-root: schemas -->
 <!-- files-scanned: 1 -->
-<!-- directives-analyzed: 1 -->
-<!-- divergent-sites: 2 -->
-<!-- auto-fixes: 1 -->
-<!-- no-ops: 1 -->
+<!-- directives-analyzed: 2 -->
+<!-- divergent-sites: 4 -->
+<!-- auto-fixes: 4 -->
+<!-- no-ops: 0 -->
 <!-- questions: 0 -->
-<!-- upgrade: connect/v0.2 -> connect/v0.4 -->
+<!-- upgrade: connect/v0.3 -> connect/v0.4 -->
 <!-- parse-notices: 0 -->
 <!-- schemas-skipped: 0 -->
 <!-- already-at-target: false -->
 
 # connect-migrate manifest — safe after rewrites
 
-**Upgrade:** `connect/v0.2` (1 schema) → `connect/v0.4`
+**Upgrade:** `connect/v0.3` (1 schema) → `connect/v0.4`
 
-**Scope:** project root `schemas` · 1 `.graphql` file · 1 `@connect` directive analyzed.
+**Scope:** project root `schemas` · 1 `.graphql` file · 2 `@connect` directives analyzed.
 
-Schemas considered: `inventory.graphql`
+Schemas considered: `media.graphql`
 
-Found 2 divergent token(s) — **every one is mechanically resolvable, with no developer decisions required.** Apply the rewrites below and the `connect/v0.4` upgrade is safe.
+Found 4 divergent token(s) — **every one is mechanically resolvable, with no developer decisions required.** Apply the rewrites below and the `connect/v0.4` upgrade is safe.
 
-## Rewrites to apply (1)
+## Rewrites to apply (4)
 
 Deterministic `$.` fortifications. In v0.3 each of these was a field access; v0.4 silently rereads it as a literal, so fortifying preserves the original behavior. Apply each edit at the location in its machine block (`rewrite_to` is the exact replacement text for the `text` token).
 
 <!-- connect-migrate site v2
-  id: 79f7c4b9
-  file: inventory.graphql
-  line: 8
+  id: 8c8c61d6
+  file: media.graphql
+  line: 28
   col: 5
-  byte_offset: 301
-  coordinate: Query.stock
-  from: connect/v0.2
+  byte_offset: 551
+  coordinate: Query.book
+  from: connect/v0.3
   kind: key_quoted_flipped_to_literal_string
-  text: "warehouse.id"
-  source_range: 42..56
+  text: "author-name"
+  source_range: 21..34
   followed_by: nothing
   recommendation: keep-v0.3
-  rewrite_to: "$.\"warehouse.id\""
+  rewrite_to: "$.\"author-name\""
+-->
+<!-- connect-migrate site v2
+  id: 0bcfee3f
+  file: media.graphql
+  line: 28
+  col: 5
+  byte_offset: 551
+  coordinate: Query.book
+  from: connect/v0.3
+  kind: key_quoted_flipped_to_literal_string
+  text: "isbn-code"
+  source_range: 45..56
+  followed_by: nothing
+  recommendation: keep-v0.3
+  rewrite_to: "$.\"isbn-code\""
+-->
+<!-- connect-migrate site v2
+  id: 7b11796e
+  file: media.graphql
+  line: 40
+  col: 5
+  byte_offset: 769
+  coordinate: Query.film
+  from: connect/v0.3
+  kind: key_quoted_flipped_to_literal_string
+  text: "director-name"
+  source_range: 23..38
+  followed_by: nothing
+  recommendation: keep-v0.3
+  rewrite_to: "$.\"director-name\""
+-->
+<!-- connect-migrate site v2
+  id: 4ba919fb
+  file: media.graphql
+  line: 40
+  col: 5
+  byte_offset: 769
+  coordinate: Query.film
+  from: connect/v0.3
+  kind: key_quoted_flipped_to_literal_string
+  text: "release-year"
+  source_range: 52..66
+  followed_by: nothing
+  recommendation: keep-v0.3
+  rewrite_to: "$.\"release-year\""
 -->
 
-- `warehouse.id` → `$."warehouse.id"` — `inventory.graphql:8` (`Query.stock`)
+- `author-name` → `$."author-name"` — `media.graphql:28` (`Query.book`)
+- `isbn-code` → `$."isbn-code"` — `media.graphql:28` (`Query.book`)
+- `director-name` → `$."director-name"` — `media.graphql:40` (`Query.film`)
+- `release-year` → `$."release-year"` — `media.graphql:40` (`Query.film`)
 
 This list is the source of truth for what gets applied. To **skip** a rewrite, delete its bullet and its `site v2` block above; to **change** a replacement, edit that block's `rewrite_to`. The agent applies exactly the blocks that remain, using each `rewrite_to` verbatim — nothing more.
 
-## No action needed (1)
+## No action needed (0)
 
-1 token(s) across 1 selection(s) parse differently under v0.4 but evaluate to the same value — a bare `null`/`true`/`false` that v0.3 resolved via response normalization. No edits required.
-
-- `false` ×1
+None.
 
 ## Questions for the developer (0)
 
