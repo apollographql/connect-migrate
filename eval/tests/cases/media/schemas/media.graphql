@@ -1,0 +1,50 @@
+extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.10", import: ["@key"])
+  @link(url: "https://specs.apollo.dev/connect/v0.3", import: ["@connect", "@source"])
+  @source(name: "media", http: { baseURL: "https://example.test/media" })
+
+interface Node {
+  id: ID!
+}
+
+type Book implements Node {
+  id: ID!
+  title: String
+  authorName: String
+  isbnCode: String
+}
+
+type Film implements Node {
+  id: ID!
+  title: String
+  directorName: String
+  releaseYear: Int
+}
+
+union SearchResult = Book | Film
+
+type Query {
+  book(id: ID!): Book
+    @connect(
+      source: "media"
+      http: { GET: "/books/{$args.id}" }
+      selection: """
+      id
+      title
+      authorName: "author-name"
+      isbnCode: "isbn-code"
+      """
+    )
+
+  film(id: ID!): Film
+    @connect(
+      source: "media"
+      http: { GET: "/films/{$args.id}" }
+      selection: """
+      id
+      title
+      directorName: "director-name"
+      releaseYear: "release-year"
+      """
+    )
+}

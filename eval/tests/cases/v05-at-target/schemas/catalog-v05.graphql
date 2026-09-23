@@ -1,0 +1,29 @@
+extend schema
+  @link(url: "https://specs.apollo.dev/federation/v2.10", import: ["@key"])
+  @link(url: "https://specs.apollo.dev/connect/v0.5", import: ["@connect", "@source"])
+  @source(name: "catalog", http: { baseURL: "https://example.test/catalog" })
+
+type Query {
+  widget(id: ID!): Widget
+    @connect(
+      source: "catalog"
+      http: { GET: "/widgets/{$args.id}" }
+      selection: """
+      id
+      name
+      currencyCode: "USD"
+      status: null
+      featured: true
+      externalRef: "widget-ref"
+      """
+    )
+}
+
+type Widget @key(fields: "id") {
+  id: ID!
+  name: String
+  currencyCode: String
+  status: String
+  featured: Boolean
+  externalRef: String
+}
