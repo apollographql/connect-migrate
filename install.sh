@@ -8,9 +8,9 @@
 # Environment variables (all optional):
 #   CONNECT_MIGRATE_VERSION       Version to install, e.g. "v0.0.1". Default: "latest".
 #   CONNECT_MIGRATE_INSTALL_DIR   Where to drop the binary. Default: "$HOME/.local/bin".
-#   GH_TOKEN / GITHUB_TOKEN       GitHub auth token; used when present. Required only
-#                                 while the connect-migrate repo is private; once it's
-#                                 public, anonymous downloads work without a token.
+#   GH_TOKEN / GITHUB_TOKEN       GitHub auth token. Optional: the repo is public, so
+#                                 anonymous downloads work. Still honored when present,
+#                                 which helps against API rate limits and in CI.
 #                                 If unset and `gh` is on PATH, `gh auth token` is
 #                                 consulted as a fallback.
 #
@@ -58,12 +58,12 @@ esac
 PLATFORM="${OS}-${ARCH}"
 BIN_NAME="connect-migrate-${PLATFORM}"
 
-# --- GitHub auth token (private-repo workaround) -------------------
+# --- GitHub auth token (optional) ----------------------------------
 
 # Use explicit env, falling back to `gh auth token` if present. Anything
 # we find here gets attached as `Authorization: token …` on requests to
-# api.github.com and github.com release-download URLs. Once the repo is
-# public, this becomes optional.
+# api.github.com and github.com release-download URLs. The repo is
+# public, so this is optional; it mainly buys a higher API rate limit.
 TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
 if [ -z "$TOKEN" ] && command -v gh >/dev/null 2>&1; then
     TOKEN=$(gh auth token 2>/dev/null || true)
@@ -153,13 +153,14 @@ info "Version: ${VERSION}"
 # --- choose download mechanism -------------------------------------
 
 # Direct /releases/download/ URLs require no auth for public repos
-# but, on private repos, `curl -L` strips Authorization on the
+# but, on a private repo, `curl -L` strips Authorization on the
 # cross-host redirect to S3 and fails. The /releases/assets/{id}
 # API endpoint returns a pre-signed S3 redirect that doesn't need
-# auth on the redirect target — works for both.
+# auth on the redirect target, so it works for both. Kept for the
+# token case even though this repo is now public.
 #
-# Pick the simpler direct path when we have no token (and trust the
-# repo is public); otherwise go through the API endpoint.
+# Pick the simpler direct path when we have no token; otherwise go
+# through the API endpoint.
 
 download_release_file() {
     local name="$1" dest="$2"
