@@ -19,8 +19,6 @@ The current target is **`connect/v0.4`** — the [SubSelection/LitObject grammar
 
 ## Install
 
-> **Before anything below works:** this repo is **private**, so you need **read access** to it (as a collaborator or via an Apollo team) and the [GitHub CLI](https://cli.github.com/) **authenticated** (`gh auth login`). Without both, every download — including `gh release download` — returns a `404`. Once the repo is public, the plain `curl …/install.sh | sh` one-liner works with no auth.
-
 ### Unix (macOS, Linux)
 
 Install with the one-line script:
@@ -51,9 +49,30 @@ gh release download -R apollographql/connect-migrate --pattern 'connect-migrate-
 ### Verify
 
 ```sh
-connect-migrate --version       # e.g. connect-migrate 0.0.4
+connect-migrate --version       # e.g. connect-migrate 0.0.9
 connect-migrate agent-guide     # prints the embedded migration guide
 ```
+
+### Build it yourself instead
+
+The released binaries are not Apple-notarized or Authenticode-signed, so
+Gatekeeper and enterprise app-control policies may refuse them. You don't have
+to use one. `connect-migrate` is a bin target of the upstream `apollo-federation`
+crate, and building it needs only `git` and [`rustup`](https://rustup.rs). You
+are not building the router, so there's no `protoc`, `cmake`, or C toolchain:
+
+```sh
+git clone --filter=blob:none https://github.com/apollographql/router.git
+cd router/apollo-federation
+cargo build --release --bin connect-migrate --features connect-migrate
+cp ../target/release/connect-migrate ~/.local/bin/
+```
+
+About a minute end to end, even with a cold crate cache. To reproduce a specific
+release, check out its `RELEASE_ROUTER_REF` first. See
+[SECURITY.md](SECURITY.md#building-from-source) for the pinned-commit walkthrough
+and [SKILL.md](SKILL.md#option-b-build-it-from-source) for what an agent should
+tell you before it starts a build.
 
 ## How it works
 

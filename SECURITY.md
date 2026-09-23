@@ -165,14 +165,15 @@ sh install.sh
 
 Two implementation details are worth calling out for the security-minded:
 
-- **The auth token never reaches the file host.** While the repository is
-  private, the script authenticates to the GitHub *API asset* endpoint,
-  which responds with a pre-signed redirect to the file host. Because the
-  redirect target is pre-signed, the `Authorization` header is not (and
-  must not be) replayed to it — so your GitHub token is sent only to
-  `api.github.com`, never to the storage backend. Once the repository is
-  public, the script uses anonymous direct-download URLs and no token is
-  involved at all.
+- **No token is needed, and one never reaches the file host.** The
+  repository is public, so the script uses anonymous direct-download
+  URLs and no token is involved at all. If you do supply one (for a
+  higher API rate limit, or in CI), the script authenticates to the
+  GitHub *API asset* endpoint, which responds with a pre-signed
+  redirect to the file host. Because that target is pre-signed, the
+  `Authorization` header is not (and must not be) replayed to it, so
+  your token is sent only to `api.github.com`, never to the storage
+  backend.
 - **No `sudo`, ever.** The script installs into your home directory and
   explicitly checks for write permission rather than escalating.
 
@@ -186,8 +187,9 @@ binary target of the upstream `apollo-federation` crate, behind the
 `connect-migrate` cargo feature.
 
 ```sh
-# 1. Clone the upstream router source.
-git clone https://github.com/apollographql/router.git
+# 1. Clone the upstream router source. --filter=blob:none fetches file
+#    contents on demand, which keeps the clone to about 35 MB.
+git clone --filter=blob:none https://github.com/apollographql/router.git
 cd router
 
 # 2. (Optional but recommended) check out the exact commit a given
@@ -213,7 +215,7 @@ native binary for your own machine). Two notes:
 - **Version string.** The version is baked in at compile time from the
   `CONNECT_MIGRATE_VERSION` environment variable, defaulting to
   `0.0.0-dev`. To stamp a specific version, prefix the build:
-  `CONNECT_MIGRATE_VERSION=0.0.8 cargo build --release …`.
+  `CONNECT_MIGRATE_VERSION=0.0.9 cargo build --release …`.
 - **Install it like any binary.** Copy the result onto your `PATH`, e.g.
   `cp ../target/release/connect-migrate ~/.local/bin/`. No installer and
   no `SHA256SUMS` step is involved when you build your own — you already
@@ -221,6 +223,15 @@ native binary for your own machine). Two notes:
 
 A from-source build is the strongest provenance you can have: there is no
 downloaded artifact to trust, only source you can read.
+
+**It is also fast.** You are not building the router, only one bin target
+of the `apollo-federation` crate, whose dependency tree is small. There is
+no `protoc`, no `cmake` and no C toolchain to install: `git` and
+[`rustup`](https://rustup.rs) are the whole prerequisite list, and router's
+`rust-toolchain.toml` tells rustup which compiler to fetch. Measured on an
+Apple Silicon laptop: ~4s to clone, ~1s to check out the pinned commit,
+~38s to compile, for ~550 MB of disk all in. An empty crate cache adds
+~148 MB of downloads and almost no time.
 
 ---
 
@@ -234,7 +245,7 @@ published*:
    workflow at the release tag:
    ```sh
    gh api "repos/apollographql/connect-migrate/contents/.github/workflows/release.yml?ref=<release-tag>" \
-     --jq '.content' | base64 -d | grep RELEASE_ROUTER_REF
+     --jq '.content' | base64 -d | grep 'RELEASE_ROUTER_REF:'
    ```
 2. **Read the source.** Browse `apollographql/router` at that SHA and
    inspect `apollo-federation/src/connectors/migration/` — this is the
@@ -254,12 +265,50 @@ published*:
 
 ## Code signing
 
-The released binaries are **not** currently Apple-notarized or
-Authenticode-signed. Installing via `install.sh` or `gh release download`
-is unaffected (those paths don't set the macOS quarantine attribute). If
-you instead download a macOS binary through a browser, Gatekeeper may
-quarantine it; clear it with `xattr -d com.apple.quarantine <file>` after
-you've verified its checksum, or use the script/`gh` install path.
+The released binaries are **not** Apple-notarized or Authenticode-signed.
+Concretely, for v0.0.8:
+
+```
+$ codesign -dv connect-migrate-darwin-arm64
+Signature=adhoc   flags=0x20002(adhoc,linker-signed)   TeamIdentifier=not set
+$ codesign -dv connect-migrate-darwin-x64
+code object is not signed at all
+$ spctl -a -vv -t execute connect-migrate-darwin-arm64
+rejected
+```
+
+The arm64 binary carries only the ad-hoc signature the linker applies,
+which has no identity behind it; the Intel binary carries none. Windows
+gets no Authenticode signature.
+
+What that means in practice:
+
+- **Installing via `install.sh` or `gh release download` works.** Neither
+  sets the macOS quarantine attribute, so Gatekeeper is never consulted
+  and the binary runs.
+- **A browser download does not.** Gatekeeper is consulted, and as the
+  `spctl` output above shows, the verdict is `rejected`. Clear it with
+  `xattr -d com.apple.quarantine <file>` after verifying the checksum, or
+  use the script or `gh` path instead.
+- **Application-control policies reject every copy, however you got it.**
+  Santa, Jamf, CrowdStrike, WDAC and AppLocker allowlist by signing
+  identity, which these artifacts do not have. No checksum or install
+  method changes that.
+
+If your environment is in the third category, don't fight it: build the
+tool yourself. See [Building from source](#building-from-source). A
+locally compiled binary is usually acceptable to exactly the policies
+that reject a downloaded one, and it is the stronger provenance anyway.
+
+### Two platforms ship untested
+
+The release workflow smoke-tests each binary it builds (`--version` plus
+`agent-guide`), but two targets skip that step: `darwin-x64`, because the
+Apple Silicon runner can't execute an x86-64 binary without Rosetta, and
+`linux-arm64`, because it is cross-compiled. Those two assets are
+published without ever having been run. They are built from the same
+pinned source by the same workflow, but if you are on either platform,
+`connect-migrate --version` is a worthwhile first command.
 
 ---
 
